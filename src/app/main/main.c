@@ -552,6 +552,8 @@ tor_init(int argc, char *argv[])
   /* Initialize the HS subsystem. */
   hs_init();
 
+  log_my(LD_GENERAL, "my log is ready: %d", __LINE__);
+
   {
     /* We check for the "quiet"/"hush" settings first, since they decide
        whether we log anything at all to stdout. */

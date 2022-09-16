@@ -93,6 +93,7 @@ sev_to_string(int severity)
     case LOG_NOTICE:  return "notice";
     case LOG_WARN:    return "warn";
     case LOG_ERR:     return "err";
+    case LOG_LAST_LEV: return "my";
     default:     /* Call raw_assert, not tor_assert, since tor_assert
                   * calls log on failure. */
                  raw_assert_unreached(); return "UNKNOWN"; // LCOV_EXCL_LINE
@@ -111,6 +112,7 @@ should_log_function_name(log_domain_mask_t domain, int severity)
     case LOG_NOTICE:
     case LOG_WARN:
     case LOG_ERR:
+    case LOG_LAST_LEV:
       /* We care about places where bugs occur. */
       return (domain & (LD_BUG|LD_NOFUNCNAME)) == LD_BUG;
     default:
@@ -545,7 +547,7 @@ logv,(int severity, log_domain_mask_t domain, const char *funcname,
   raw_assert(format);
   /* check that severity is sane.  Overrunning the masks array leads to
    * interesting and hard to diagnose effects */
-  raw_assert(severity >= LOG_ERR && severity <= LOG_DEBUG);
+  raw_assert(severity >= LOG_LAST_LEV && severity <= LOG_DEBUG);
 
   LOCK_LOGS();
 
@@ -1213,6 +1215,8 @@ add_syslog_log(const log_severity_list_t *severity,
 int
 parse_log_level(const char *level)
 {
+  if (!strcasecmp(level, "my"))
+    return LOG_LAST_LEV;
   if (!strcasecmp(level, "err"))
     return LOG_ERR;
   if (!strcasecmp(level, "warn"))
@@ -1398,7 +1402,8 @@ parse_log_severity_config(const char **cfg_ptr,
       sev_hi = tor_strndup(dash+1, space-(dash+1));
     } else {
       sev_lo = tor_strndup(cfg, space-cfg);
-      sev_hi = tor_strdup("ERR");
+      // change to LOG_LAST_LEV (MY)
+      sev_hi = tor_strdup("MY");
     }
     low = parse_log_level(sev_lo);
     high = parse_log_level(sev_hi);

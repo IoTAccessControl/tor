@@ -146,12 +146,15 @@
  * would. Used as a flag, not a log domain. */
 #define LD_NOFUNCNAME (UINT64_C(1)<<63)
 
+/** define a final level log, only used for eWFD dev  */
+#define LOG_LAST_LEV (LOG_ERR - 1)
+
 /** Configures which severities are logged for each logging domain for a given
  * log target. */
 typedef struct log_severity_list_t {
   /** For each log severity, a bitmask of which domains a given logger is
    * logging. */
-  log_domain_mask_t masks[LOG_DEBUG-LOG_ERR+1];
+  log_domain_mask_t masks[LOG_DEBUG-LOG_LAST_LEV+1];
 } log_severity_list_t;
 
 /** Callback type used for add_callback_log. */
@@ -290,6 +293,9 @@ void tor_log_string(int severity, log_domain_mask_t domain,
                   args, ##__VA_ARGS__)
 #endif /* defined(__GNUC__) && __GNUC__ <= 3 */
 
+#define log_my(domain, args,...)                                       \
+  log_fn_(LOG_LAST_LEV, domain, __FUNCTION__, args, ##__VA_ARGS__)
+
 /** This defines log levels that are linked in the Rust log module, rather
  * than re-defining these in both Rust and C.
  *
@@ -311,7 +317,7 @@ MOCK_DECL(STATIC void, add_stream_log_impl,(
 #if defined(LOG_PRIVATE) || defined(TOR_UNIT_TESTS)
 /** Given a severity, yields an index into log_severity_list_t.masks to use
  * for that severity. */
-#define SEVERITY_MASK_IDX(sev) ((sev) - LOG_ERR)
+#define SEVERITY_MASK_IDX(sev) ((sev) - LOG_LAST_LEV)
 #endif
 
 #endif /* !defined(TOR_TORLOG_H) */
