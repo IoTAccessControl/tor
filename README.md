@@ -2,6 +2,9 @@ Tor protects your privacy on the internet by hiding the connection between
 your Internet address and the services you use. We believe Tor is reasonably
 secure, but please ensure you read the instructions and configure it properly.
 
+The gitigore is from https://github.com/torproject/tor.  
+The tor source code is downloading from https://www.torproject.org/download/tor/ version-0.4.7.10  
+
 ## Build
 
 To build Tor from source:
