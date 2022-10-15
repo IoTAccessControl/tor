@@ -78,6 +78,7 @@ include src/feature/nodelist/include.am
 include src/feature/relay/include.am
 include src/feature/rend/include.am
 include src/feature/stats/include.am
+include src/feature/ewfd/include.am
 
 include src/app/config/include.am
 include src/app/main/include.am
