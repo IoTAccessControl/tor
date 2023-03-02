@@ -57,7 +57,7 @@
 #include "feature/stats/predict_ports.h"
 #include "feature/stats/bwhist.h"
 #include "feature/stats/rephist.h"
-#include "feature/ewfd/ewfd_utils.h"
+#include "feature/ewfd/utils.h"
 #include "lib/compress/compress.h"
 #include "lib/buf/buffers.h"
 #include "lib/crypt_ops/crypto_format.h"
@@ -553,9 +553,6 @@ tor_init(int argc, char *argv[])
   /* Initialize the HS subsystem. */
   hs_init();
 
-  // log_my(LD_GENERAL, "my log is ready: %d %s", __LINE__, __FILE__);
-  ewfd_log("this is from my log");
-
   {
     /* We check for the "quiet"/"hush" settings first, since they decide
        whether we log anything at all to stdout. */
@@ -621,6 +618,8 @@ tor_init(int argc, char *argv[])
     // "--version" or something like that.
     return 1;
   }
+
+  EWFD_LOG("this is from my log: %d policy: %d", get_options()->EWFDEnableDebugLog, get_options()->EWFDPolicy);
 
   /* Initialize channelpadding and circpad parameters to defaults
    * until we get a consensus */

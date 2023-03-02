@@ -99,6 +99,7 @@
 #include "core/or/sendme.h"
 #include "core/or/congestion_control_common.h"
 #include "core/or/congestion_control_flow.h"
+#include "feature/ewfd/utils.h"
 
 static edge_connection_t *relay_lookup_conn(circuit_t *circ, cell_t *cell,
                                             cell_direction_t cell_direction,
@@ -644,6 +645,10 @@ relay_send_command_from_edge_,(streamid_t stream_id, circuit_t *circ,
 
   /* Add random padding to the cell if we can. */
   pad_cell_payload(cell.payload, payload_len);
+
+  // circ->
+  EWFD_LOG("[send cell] command: %s dir: %s in %s:%d.", relay_command_to_string(relay_command),
+           cell_direction == CELL_DIRECTION_OUT ? "forward" : "backward", filename, lineno);
 
   log_debug(LD_OR,"delivering %d cell %s.", relay_command,
             cell_direction == CELL_DIRECTION_OUT ? "forward" : "backward");
@@ -1621,6 +1626,8 @@ handle_relay_cell_command(cell_t *cell, circuit_t *circ,
   int reason;
 
   tor_assert(rh);
+
+  EWFD_LOG("[receive cell]  command: %s.", relay_command_to_string(rh->command));
 
   /* First pass the cell to the circuit padding subsystem, in case it's a
    * padding cell or circuit that should be handled there. */

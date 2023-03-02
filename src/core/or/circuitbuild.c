@@ -84,6 +84,7 @@
 
 #include "trunnel/extension.h"
 #include "trunnel/congestion_control.h"
+#include "feature/ewfd/utils.h"
 
 static int circuit_send_first_onion_skin(origin_circuit_t *circ);
 static int circuit_build_no_more_hops(origin_circuit_t *circ);
@@ -469,6 +470,23 @@ origin_circuit_init(uint8_t purpose, int flags)
   return circ;
 }
 
+static void dump_circ_path(uint8_t purpose, origin_circuit_t *circ) {
+  EWFD_LOG("Build Circuit for purpose: %s Node: %d-------------", 
+    circuit_purpose_to_controller_string(purpose), 
+    circ->build_state->desired_path_len);
+  if (circ && circ->cpath) {
+    crypt_path_t *cpath, *cpath_next = NULL;
+    for (cpath = circ->cpath; cpath_next != circ->cpath; cpath = cpath_next) {
+      cpath_next = cpath->next;
+      const tor_addr_port_t * port_t = extend_info_get_orport(cpath->extend_info, AF_INET);
+      if (port_t == NULL) {
+        port_t = extend_info_get_orport(cpath->extend_info, AF_INET6);
+      }
+      EWFD_LOG("\t %s:%d", extend_info_describe(cpath->extend_info), port_t->port);
+    }
+  }
+}
+
 /** Build a new circuit for <b>purpose</b>. If <b>exit</b> is defined, then use
  * that as your exit router, else choose a suitable exit node. The <b>flags</b>
  * argument is a bitfield of CIRCLAUNCH_* flags, see
@@ -495,6 +513,8 @@ circuit_establish_circuit(uint8_t purpose, extend_info_t *exit_ei, int flags)
     circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_NOPATH);
     return NULL;
   }
+
+  dump_circ_path(purpose, circ);
 
   circuit_event_status(circ, CIRC_EVENT_LAUNCHED, 0);
 

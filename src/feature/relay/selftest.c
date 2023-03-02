@@ -36,6 +36,7 @@
 #include "feature/dirclient/dirclient.h"
 #include "feature/dircommon/directory.h"
 
+#include "feature/ewfd/utils.h"
 #include "feature/nodelist/authority_cert_st.h"
 #include "feature/nodelist/routerinfo.h"
 #include "feature/nodelist/routerinfo_st.h"
@@ -431,6 +432,7 @@ router_perform_bandwidth_test(int num_circs, time_t now)
   int cells_per_circuit = max_cells / num_circs;
   origin_circuit_t *circ = NULL;
 
+  EWFD_LOG("------------------ router_perform_bandwidth_test: num_circs=%d, now=%ld", num_circs, (long)now);
   log_notice(LD_OR,"Performing bandwidth self-test...done.");
   while ((circ = circuit_get_next_by_purpose(circ,
                                              CIRCUIT_PURPOSE_TESTING))) {
@@ -447,4 +449,6 @@ router_perform_bandwidth_test(int num_circs, time_t now)
       }
     }
   }
+
+  EWFD_LOG("------------------ Finish router bandwidth test");
 }

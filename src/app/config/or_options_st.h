@@ -844,6 +844,13 @@ struct or_options_t {
    * the bridge authority guess which countries have blocked access to us. */
   int BridgeRecordUsageByCountry;
 
+  /* -------------------  eWFD Config  --------------------------*/
+  // tor-0.4.7.10/src/app/config/config.c:754
+  /* set padding policy */
+  int EWFDPolicy;
+  /* default 1, disable the debug log for performance evaluation */
+  int EWFDEnableDebugLog; 
+
   /** Optionally, IPv4 and IPv6 GeoIP data. */
   char *GeoIPFile;
   char *GeoIPv6File;

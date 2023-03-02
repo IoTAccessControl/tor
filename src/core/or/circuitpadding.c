@@ -46,6 +46,7 @@
  * cleaned up by the circpad_free_all() function.
  **/
 
+#include "feature/ewfd/utils.h"
 #define CIRCUITPADDING_PRIVATE
 
 #include <math.h>
@@ -79,6 +80,7 @@
 #include "feature/nodelist/nodelist.h"
 
 #include "app/config/config.h"
+#include "feature/ewfd/ewfd_conf.h"
 
 static inline circpad_circuit_state_t circpad_circuit_state(
                                         origin_circuit_t *circ);
@@ -2785,6 +2787,17 @@ circpad_machines_init(void)
   /* Register machines for hiding client-side rendezvous circuits */
   circpad_machine_client_hide_rend_circuits(origin_padding_machines);
   circpad_machine_relay_hide_rend_circuits(relay_padding_machines);
+
+  if (get_options()->EWFDPolicy == EWFD_PADDING_APE) {
+    EWFD_LOG("[padding] init APE padding machines");
+      /* Register machines for the APE WF defense */
+    circpad_machine_client_wf_ape_send(origin_padding_machines);
+    circpad_machine_client_wf_ape_recv(origin_padding_machines);
+    circpad_machine_relay_wf_ape_send(relay_padding_machines);
+    circpad_machine_relay_wf_ape_recv(relay_padding_machines);
+  } else {
+    EWFD_LOG("[padding] no padding machines");
+  }
 
   // TODO: Parse machines from consensus and torrc
 #ifdef TOR_UNIT_TESTS

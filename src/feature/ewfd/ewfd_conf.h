@@ -1,0 +1,13 @@
+#ifndef EWFD_CONF_H_
+#define EWFD_CONF_H_
+
+enum MyPaddingType {
+	EWFD_PADDING_NONE = 0,
+	EWFD_PADDING_APE = 1,
+	EWFD_PADDING_EBPF_TEST = 2,
+	EWFD_PADDING_TARMORT = 3,
+};
+
+
+
+#endif // EWFD_CONF_H_

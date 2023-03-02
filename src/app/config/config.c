@@ -751,6 +751,9 @@ static const config_var_t option_vars_[] = {
   V(TestingBridgeBootstrapDownloadInitialDelay, CSV_INTERVAL, "0"),
   V(TestingClientMaxIntervalWithoutRequest, INTERVAL, "10 minutes"),
   V(TestingDirConnectionMaxStall, INTERVAL, "5 minutes"),
+  /* eWFD Settings */
+  V(EWFDPolicy, INT, "0"),
+  V(EWFDEnableDebugLog, BOOL, "1"),
   OBSOLETE("TestingConsensusMaxDownloadTries"),
   OBSOLETE("ClientBootstrapConsensusMaxDownloadTries"),
   OBSOLETE("ClientBootstrapConsensusAuthorityOnlyMaxDownloadTries"),
