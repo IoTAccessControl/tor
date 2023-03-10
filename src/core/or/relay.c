@@ -647,8 +647,9 @@ relay_send_command_from_edge_,(streamid_t stream_id, circuit_t *circ,
   pad_cell_payload(cell.payload, payload_len);
 
   // circ->
-  EWFD_LOG("[send cell] command: %s dir: %s in %s:%d.", relay_command_to_string(relay_command),
-           cell_direction == CELL_DIRECTION_OUT ? "forward" : "backward", filename, lineno);
+  EWFD_LOG("[send cell] command: %s circ: %d dir: %s in %s:%d.", relay_command_to_string(relay_command),
+    TO_ORIGIN_CIRCUIT(circ)->global_identifier,
+    cell_direction == CELL_DIRECTION_OUT ? "forward" : "backward", filename, lineno);
 
   log_debug(LD_OR,"delivering %d cell %s.", relay_command,
             cell_direction == CELL_DIRECTION_OUT ? "forward" : "backward");
@@ -1627,7 +1628,8 @@ handle_relay_cell_command(cell_t *cell, circuit_t *circ,
 
   tor_assert(rh);
 
-  EWFD_LOG("[receive cell]  command: %s.", relay_command_to_string(rh->command));
+  EWFD_LOG("[receive cell]  command: %s cur-circ: %d next-circ: %ld.", relay_command_to_string(rh->command), 
+    circ->global_circuitlist_idx, circ->n_chan->global_identifier);
 
   /* First pass the cell to the circuit padding subsystem, in case it's a
    * padding cell or circuit that should be handled there. */

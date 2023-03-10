@@ -471,8 +471,9 @@ origin_circuit_init(uint8_t purpose, int flags)
 }
 
 static void dump_circ_path(uint8_t purpose, origin_circuit_t *circ) {
-  EWFD_LOG("Build Circuit for purpose: %s Node: %d-------------", 
+  EWFD_LOG("Build Circuit [%d] for purpose: %s state: %s nodes: %d-------------", circ->global_identifier,
     circuit_purpose_to_controller_string(purpose), 
+    circuit_state_to_string(TO_CIRCUIT(circ)->state),
     circ->build_state->desired_path_len);
   if (circ && circ->cpath) {
     crypt_path_t *cpath, *cpath_next = NULL;
