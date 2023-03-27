@@ -646,9 +646,14 @@ relay_send_command_from_edge_,(streamid_t stream_id, circuit_t *circ,
   /* Add random padding to the cell if we can. */
   pad_cell_payload(cell.payload, payload_len);
 
-  // circ->
-  EWFD_LOG("[send cell] command: %s circ: %d dir: %s in %s:%d.", relay_command_to_string(relay_command),
-    TO_ORIGIN_CIRCUIT(circ)->global_identifier,
+  if (CIRCUIT_IS_ORIGIN(circ)) {
+    // TO_ORIGIN_CIRCUIT(circ)->cpath
+    // int circ_id = circ->n_circ_id;
+    // TO_ORIGIN_CIRCUIT(circ)->cpath[0].extend_info
+  }
+  // send cell: from circ to next
+  EWFD_LOG("[send cell] command: %s cur-circ: %d circ-id: %u dir: %s in %s:%d.", relay_command_to_string(relay_command),
+    CIRCUIT_IS_ORIGIN(circ) ? TO_ORIGIN_CIRCUIT(circ)->global_identifier : 0, (unsigned) cell.circ_id, 
     cell_direction == CELL_DIRECTION_OUT ? "forward" : "backward", filename, lineno);
 
   log_debug(LD_OR,"delivering %d cell %s.", relay_command,
@@ -1628,8 +1633,10 @@ handle_relay_cell_command(cell_t *cell, circuit_t *circ,
 
   tor_assert(rh);
 
-  EWFD_LOG("[receive cell]  command: %s cur-circ: %d next-circ: %ld.", relay_command_to_string(rh->command), 
-    circ->global_circuitlist_idx, circ->n_chan->global_identifier);
+  EWFD_LOG("[receive cell]  command: %s cur-circ: %d ", relay_command_to_string(rh->command), 
+    /* Current Circuit Global ID */   
+    CIRCUIT_IS_ORIGIN(circ) ? TO_ORIGIN_CIRCUIT(circ)->global_identifier : 0);
+    // /* channel ID*/);
 
   /* First pass the cell to the circuit padding subsystem, in case it's a
    * padding cell or circuit that should be handled there. */
