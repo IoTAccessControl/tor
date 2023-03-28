@@ -63,6 +63,11 @@
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
 #include "core/or/var_cell_st.h"
+#include "lib/log/log.h"
+
+#include "feature/ewfd/utils.h"
+#include "lib/log/util_bug.h"
+#include "core/or/extendinfo.h"
 
 /** How many CELL_CREATE cells have we received, ever? */
 uint64_t stats_n_create_cells_processed = 0;
@@ -216,6 +221,7 @@ command_process_cell(channel_t *chan, cell_t *cell)
              cell->command);
       break;
   }
+  // EWFD_LOG("process command: %s", cell_command_to_string(cell->command));
 }
 
 /** Process a 'create' <b>cell</b> that just arrived from <b>chan</b>. Make a

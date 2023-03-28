@@ -1218,6 +1218,11 @@ circuit_free_(circuit_t *circ)
     /* Clear cell queue _after_ removing it from the map.  Otherwise our
      * "active" checks will be violated. */
     cell_queue_clear(&ocirc->p_chan_cells);
+
+    /* clear prev hop extend info */
+    if (ocirc->p_hop) {
+      extend_info_free(ocirc->p_hop);
+    }
   }
 
   extend_info_free(circ->n_hop);

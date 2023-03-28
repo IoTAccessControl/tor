@@ -29,6 +29,9 @@ struct or_circuit_t {
    * safe to free a circuit or if it is still in use by a cpuworker. */
   struct workqueue_entry_t *workqueue_entry;
 
+  /** The node's extend info of previouse hop. */
+  extend_info_t *p_hop;
+
   /** The circuit_id used in the previous (backward) hop of this circuit. */
   circid_t p_circ_id;
   /** Queue of cells waiting to be transmitted on p_conn. */
