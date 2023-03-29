@@ -59,13 +59,12 @@ const char *ewfd_get_circuit_info(circuit_t *circ) {
 			const node_t *node = node_get_by_id(oric->p_chan->identity_digest);
 			if (node) {
 				extend_info_t *info = extend_info_from_node(node, 1, false);
-				tor_assert(info);
-				TO_OR_CIRCUIT(circ)->p_hop = extend_info_dup(info);
+				if (info) {
+					TO_OR_CIRCUIT(circ)->p_hop = extend_info_dup(info);
+				}
 			}
 		}
 
-		tor_assert(oric->p_circ_id);
-		
 		if (oric->p_hop != NULL) {
 			node_name = oric->p_hop->nickname;
 		} 
@@ -73,7 +72,7 @@ const char *ewfd_get_circuit_info(circuit_t *circ) {
 		// kh = oric->rend_circ_nonce;
 	}
 
-	tor_snprintf(ewfd_circuit_log, 64, "self:%s peer:%s(%u)", self, node_name, peer_circ_id);
+	tor_snprintf(ewfd_circuit_log, 64, "self:%s peer:[%s](%u)", self, node_name, peer_circ_id);
 	return ewfd_circuit_log;
 }
 

@@ -2,9 +2,12 @@
 # ADD_C_FILE: INSERT SOURCES HERE.
 LIBTOR_APP_A_SOURCES += 			\
 	src/feature/ewfd/utils.c		\
-	src/feature/ewfd/debug.c			
+	src/feature/ewfd/debug.c		\
+	src/feature/ewfd/padding.c 
 
 # ADD_C_FILE: INSERT HEADERS HERE.
 noinst_HEADERS +=					\
 	src/feature/ewfd/utils.h		\
-	src/feature/ewfd/debug.h
+	src/feature/ewfd/debug.h		\
+	src/feature/ewfd/padding.h		\
+	src/feature/ewfd/ewfd.h

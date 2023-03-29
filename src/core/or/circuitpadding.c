@@ -45,10 +45,7 @@
  * origin_padding_machines/relay_padding_machines so that they get correctly
  * cleaned up by the circpad_free_all() function.
  **/
-
-#include "feature/ewfd/utils.h"
 #define CIRCUITPADDING_PRIVATE
-
 #include <math.h>
 #include "lib/math/fp.h"
 #include "lib/math/prob_distr.h"
@@ -81,6 +78,9 @@
 
 #include "app/config/config.h"
 #include "feature/ewfd/ewfd_conf.h"
+#include "feature/ewfd/debug.h"
+#include "feature/ewfd/ewfd.h"
+#include <stdint.h>
 
 static inline circpad_circuit_state_t circpad_circuit_state(
                                         origin_circuit_t *circ);
@@ -2172,7 +2172,11 @@ STATIC void
 circpad_add_matching_machines(origin_circuit_t *on_circ,
                               smartlist_t *machines_sl)
 {
+
   circuit_t *circ = TO_CIRCUIT(on_circ);
+  
+  /** eWFD add units to circ*/
+  add_ewfd_units_to_circ(circ);
 
 #ifdef TOR_UNIT_TESTS
   /* Tests don't have to init our padding machines */
@@ -2788,14 +2792,19 @@ circpad_machines_init(void)
   circpad_machine_client_hide_rend_circuits(origin_padding_machines);
   circpad_machine_relay_hide_rend_circuits(relay_padding_machines);
 
-  if (get_options()->EWFDPolicy == EWFD_PADDING_APE) {
+  uint32_t ewfd_policy = get_options()->EWFDPolicy;
+  if (ewfd_policy == EWFD_PADDING_APE) {
     EWFD_LOG("[padding] init APE padding machines");
       /* Register machines for the APE WF defense */
     circpad_machine_client_wf_ape_send(origin_padding_machines);
     circpad_machine_client_wf_ape_recv(origin_padding_machines);
     circpad_machine_relay_wf_ape_send(relay_padding_machines);
     circpad_machine_relay_wf_ape_recv(relay_padding_machines);
-  } else {
+  } else if (ewfd_policy == EWFD_PADDING_EBPF_TEST) {
+    EWFD_LOG("[padding] use eBPF test padding units");
+    ewfd_padding_init();
+  }
+  else {
     EWFD_LOG("[padding] no padding machines");
   }
 
@@ -2812,6 +2821,7 @@ circpad_machines_init(void)
 void
 circpad_machines_free(void)
 {
+  ewfd_padding_free();
   if (origin_padding_machines) {
     SMARTLIST_FOREACH(origin_padding_machines,
                       circpad_machine_spec_t *,
@@ -2997,6 +3007,8 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
           "Received malformed PADDING_NEGOTIATE cell; dropping.");
     return -1;
   }
+
+  EWFD_LOG("relay padding_negotiat: %d cmd: %d", CIRCUIT_IS_ORIGIN(circ), negotiate->command);
 
   if (negotiate->command == CIRCPAD_COMMAND_STOP) {
     /* Free the machine corresponding to this machine type */

@@ -683,17 +683,13 @@ circpad_machine_client_wf_ape_send(smartlist_t *machines_sl)
   * Order should be below 1 ms, so we wait at least 100 us (to give tor a chance
   * to queue application data), but then have a random distribution between
   * [0,1] ms. */
-  client_machine->states[CIRCPAD_STATE_BURST].
-  iat_dist.type = CIRCPAD_DIST_UNIFORM;
-  client_machine->states[CIRCPAD_STATE_BURST].
-  iat_dist.param1 = 0;
-  client_machine->states[CIRCPAD_STATE_BURST].
-  iat_dist.param2 = 1000 * crypto_fast_rng_get_double(get_thread_fast_rng());
-  client_machine->states[CIRCPAD_STATE_BURST].
-  dist_added_shift_usec = 100;
-  client_machine->states[CIRCPAD_STATE_BURST].
-  dist_max_sample_usec = client_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2 + 
-  client_machine->states[CIRCPAD_STATE_BURST].dist_added_shift_usec;
+  client_machine->states[CIRCPAD_STATE_BURST].iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  client_machine->states[CIRCPAD_STATE_BURST].iat_dist.param1 = 0;
+  client_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2 = 1000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  client_machine->states[CIRCPAD_STATE_BURST].dist_added_shift_usec = 100;
+  client_machine->states[CIRCPAD_STATE_BURST].dist_max_sample_usec = 
+    client_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2 + 
+    client_machine->states[CIRCPAD_STATE_BURST].dist_added_shift_usec;
 
   // results in 25% chance of transitioning back to start from burst
   circpad_machine_common_wf_ape_prob_back(client_machine, 3);
@@ -716,7 +712,7 @@ circpad_machine_client_wf_ape_send(smartlist_t *machines_sl)
   dist_added_shift_usec = 10;
   client_machine->states[CIRCPAD_STATE_GAP].
   dist_max_sample_usec = client_machine->states[CIRCPAD_STATE_GAP].iat_dist.param2 + 
-  client_machine->states[CIRCPAD_STATE_GAP].dist_added_shift_usec;
+    client_machine->states[CIRCPAD_STATE_GAP].dist_added_shift_usec;
 
   /* Here we sample the number of cells that make up our additional (or larger)
   * HTTP requests.

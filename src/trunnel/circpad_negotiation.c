@@ -365,7 +365,7 @@ circpad_negotiated_get_command(const circpad_negotiated_t *inp)
 int
 circpad_negotiated_set_command(circpad_negotiated_t *inp, uint8_t val)
 {
-  if (! ((val == CIRCPAD_COMMAND_START || val == CIRCPAD_COMMAND_STOP))) {
+  if (! ((val > CIRCPAD_COMMAND_POS_FIRST && val < CIRCPAD_COMMAND_POS_LAST))) {
      TRUNNEL_SET_ERROR_CODE(inp);
      return -1;
   }
@@ -418,7 +418,7 @@ circpad_negotiated_check(const circpad_negotiated_t *obj)
     return "A set function failed on this object";
   if (! (obj->version == 0))
     return "Integer out of bounds";
-  if (! (obj->command == CIRCPAD_COMMAND_START || obj->command == CIRCPAD_COMMAND_STOP))
+  if (! (obj->command > CIRCPAD_COMMAND_POS_FIRST && obj->command  < CIRCPAD_COMMAND_POS_LAST))
     return "Integer out of bounds";
   if (! (obj->response == CIRCPAD_RESPONSE_ERR || obj->response == CIRCPAD_RESPONSE_OK))
     return "Integer out of bounds";
@@ -556,7 +556,7 @@ circpad_negotiated_parse_into(circpad_negotiated_t *obj, const uint8_t *input, c
   CHECK_REMAINING(1, truncated);
   obj->command = (trunnel_get_uint8(ptr));
   remaining -= 1; ptr += 1;
-  if (! (obj->command == CIRCPAD_COMMAND_START || obj->command == CIRCPAD_COMMAND_STOP))
+  if (! (obj->command > CIRCPAD_COMMAND_POS_FIRST && obj->command  < CIRCPAD_COMMAND_POS_LAST))
     goto fail;
 
   /* Parse u8 response IN [CIRCPAD_RESPONSE_ERR, CIRCPAD_RESPONSE_OK] */

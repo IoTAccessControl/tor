@@ -650,7 +650,7 @@ relay_send_command_from_edge_,(streamid_t stream_id, circuit_t *circ,
   pad_cell_payload(cell.payload, payload_len);
 
   // send cell: from circ to next
-  EWFD_LOG("[send cell] command: %s %s in %s:%d.", relay_command_to_string(relay_command),
+  EWFD_LOG("[send cell] command: [%s] %s in %s:%d.", relay_command_to_string(relay_command),
    ewfd_get_circuit_info(circ), filename, lineno);
 
   log_debug(LD_OR,"delivering %d cell %s.", relay_command,
@@ -1630,11 +1630,7 @@ handle_relay_cell_command(cell_t *cell, circuit_t *circ,
 
   tor_assert(rh);
 
-  if (CIRCUIT_IS_ORCIRC(circ)) {
-
-  }
-
-  EWFD_LOG("[receive cell]  command: %s %s", relay_command_to_string(rh->command), 
+  EWFD_LOG("[receive cell]  command: [%s] %s", relay_command_to_string(rh->command), 
     ewfd_get_circuit_info(circ));
 
   /* First pass the cell to the circuit padding subsystem, in case it's a

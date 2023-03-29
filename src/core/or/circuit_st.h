@@ -240,6 +240,10 @@ struct circuit_t {
    *  and we can have up to CIRCPAD_MAX_MACHINES such machines. */
   struct circpad_machine_runtime_t *padding_info[CIRCPAD_MAX_MACHINES];
 
+  /** eWFD padding unit of this circuit. One unit can execute a fixed eBPF code via a VM.
+  */
+  struct ewfd_padding_unit_t *ewfd_padding_unit[CIRCPAD_MAX_MACHINES];
+
   /** padding_machine_ctr increments each time a new padding machine
    * is negotiated. It is used for shutdown conditions, to ensure
    * that STOP commands actually correspond to the current machine,
