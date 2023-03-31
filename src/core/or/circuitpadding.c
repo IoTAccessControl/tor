@@ -79,7 +79,7 @@
 #include "app/config/config.h"
 #include "feature/ewfd/ewfd_conf.h"
 #include "feature/ewfd/debug.h"
-#include "feature/ewfd/ewfd.h"
+#include "feature/ewfd/padding.h"
 #include <stdint.h>
 #include "circpad_negotiation.h"
 #include "feature/ewfd/padding.h"
@@ -3010,6 +3010,7 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
+  EWFD_LOG("relay padding_negotiat: %d cmd: %d", CIRCUIT_IS_ORIGIN(circ), negotiate->command);
   // eWFD padding extension
   if (negotiate->command >= CIRCPAD_COMMAND_EWFD_START && negotiate->command <= CIRCPAD_COMMAND_EWFD_STOP) {
     retval =  ewfd_handle_padding_negotiate(circ, negotiate);

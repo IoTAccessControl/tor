@@ -18,6 +18,7 @@
 
 #include "core/or/cell_queue_st.h"
 #include "ext/ht.h"
+#include "feature/ewfd/padding.h"
 
 struct hs_token_t;
 struct circpad_machine_spec_t;
@@ -228,6 +229,7 @@ struct circuit_t {
    *  Each element of this array corresponds to a different padding machine,
    *  and we can have up to CIRCPAD_MAX_MACHINES such machines. */
   const struct circpad_machine_spec_t *padding_machine[CIRCPAD_MAX_MACHINES];
+
 
   /** Adaptive Padding machine runtime info for above machines. This is
    *  the per-circuit mutable information, such as the current state and
