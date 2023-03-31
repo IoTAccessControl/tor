@@ -81,6 +81,8 @@
 #include "feature/ewfd/debug.h"
 #include "feature/ewfd/ewfd.h"
 #include <stdint.h>
+#include "circpad_negotiation.h"
+#include "feature/ewfd/padding.h"
 
 static inline circpad_circuit_state_t circpad_circuit_state(
                                         origin_circuit_t *circ);
@@ -2176,7 +2178,7 @@ circpad_add_matching_machines(origin_circuit_t *on_circ,
   circuit_t *circ = TO_CIRCUIT(on_circ);
   
   /** eWFD add units to circ*/
-  add_ewfd_units_to_circ(circ);
+  add_ewfd_units_on_circ(circ);
 
 #ifdef TOR_UNIT_TESTS
   /* Tests don't have to init our padding machines */
@@ -3008,7 +3010,13 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
-  EWFD_LOG("relay padding_negotiat: %d cmd: %d", CIRCUIT_IS_ORIGIN(circ), negotiate->command);
+  // eWFD padding extension
+  if (negotiate->command >= CIRCPAD_COMMAND_EWFD_START && negotiate->command <= CIRCPAD_COMMAND_EWFD_STOP) {
+    retval =  ewfd_handle_padding_negotiate(circ, negotiate);
+    EWFD_LOG("eWFD padding negotiate cmd: %d ret: %d", negotiate->command, retval);
+    circpad_negotiate_free(negotiate);
+    return retval;
+  }
 
   if (negotiate->command == CIRCPAD_COMMAND_STOP) {
     /* Free the machine corresponding to this machine type */

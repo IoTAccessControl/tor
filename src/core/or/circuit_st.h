@@ -240,7 +240,7 @@ struct circuit_t {
    *  and we can have up to CIRCPAD_MAX_MACHINES such machines. */
   struct circpad_machine_runtime_t *padding_info[CIRCPAD_MAX_MACHINES];
 
-  /** eWFD padding unit of this circuit. One unit can execute a fixed eBPF code via a VM.
+  /** eWFD padding unit of this circuit. One unit can execute a fixed eBPF prog.
   */
   struct ewfd_padding_unit_t *ewfd_padding_unit[CIRCPAD_MAX_MACHINES];
 
