@@ -2179,7 +2179,6 @@ circpad_add_matching_machines(origin_circuit_t *on_circ,
   
   /** eWFD add units to circ*/
   add_ewfd_units_on_circ(circ);
-  add_ewfd_units_on_circ(circ);
 
 #ifdef TOR_UNIT_TESTS
   /* Tests don't have to init our padding machines */
@@ -3011,7 +3010,10 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
-  EWFD_LOG("relay padding_negotiat: %d cmd: %d", CIRCUIT_IS_ORIGIN(circ), negotiate->command);
+  EWFD_LOG("relay padding_negotiate: %d cmd: %d", CIRCUIT_IS_ORIGIN(circ), negotiate->command);
+  if (negotiate->command >= CIRCPAD_COMMAND_EWFD_START && negotiate->command <= CIRCPAD_COMMAND_EWFD_STOP) {
+    return ewfd_handle_padding_negotiate(circ, negotiate);
+  }
 
   if (negotiate->command == CIRCPAD_COMMAND_STOP) {
     /* Free the machine corresponding to this machine type */
@@ -3090,6 +3092,9 @@ circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
            "Padding negotiated cell unsupported at non-origin.");
     return -1;
   }
+
+  if (layer_hint != NULL && layer_hint->extend_info != NULL)
+    EWFD_LOG("negotiated hop: %s", layer_hint->extend_info->nickname);
 
   /* Verify this came from the expected hop */
   if (!circpad_padding_is_from_expected_hop(circ, layer_hint)) {

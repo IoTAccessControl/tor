@@ -45,6 +45,7 @@ const char *ewfd_get_circuit_info(circuit_t *circ) {
 	const char *node_name = "unkown";
 	// char *kh = "";
 	uint32_t peer_circ_id = 0;
+	int gid = -1;
 	
 	if (CIRCUIT_IS_ORIGIN(circ)) {
 		origin_circuit_t *oric = TO_ORIGIN_CIRCUIT(circ);
@@ -52,6 +53,7 @@ const char *ewfd_get_circuit_info(circuit_t *circ) {
 		node_name = oric->cpath->extend_info->nickname;
 		peer_circ_id = circ->n_circ_id;
 		// kh = oric->cpath->rend_circ_nonce;
+		gid = oric->global_identifier;
 	} else {
 		or_circuit_t *oric = TO_OR_CIRCUIT(circ);
 		
@@ -72,7 +74,7 @@ const char *ewfd_get_circuit_info(circuit_t *circ) {
 		// kh = oric->rend_circ_nonce;
 	}
 
-	tor_snprintf(ewfd_circuit_log, 64, "self:%s peer:[%s](%u)", self, node_name, peer_circ_id);
+	tor_snprintf(ewfd_circuit_log, 64, "self:%s peer:[%s](%u) gid:%d", self, node_name, peer_circ_id, gid);
 	return ewfd_circuit_log;
 }
 

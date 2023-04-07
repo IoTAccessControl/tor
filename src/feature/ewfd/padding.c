@@ -58,17 +58,16 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 	if (on_circ->padding_negotiation_failed) {
 		return 0;
 	}
-	return 0;
 
 	// 初始化所有的padding machine
 	SMARTLIST_FOREACH_BEGIN(client_unit_confs, ewfd_padding_conf_st *, conf) {
 		// add or replace a slot
-		int slot = conf->unit_uuid;
+		int slot = conf->unit_slot;
 		if (circ->ewfd_padding_unit[slot] == NULL) {
 			ewfd_add_unit_to_circ_by_uuid(circ, conf->unit_uuid);
 
 			// 通知relay开启对应的padding unit
-			if (circpad_negotiate_padding(TO_ORIGIN_CIRCUIT(circ), slot,
+			if (circpad_negotiate_padding(TO_ORIGIN_CIRCUIT(circ), conf->unit_uuid,
 			conf->target_hopnum,
 			CIRCPAD_COMMAND_EWFD_START,
 			circ->padding_machine_ctr) < 0) {
@@ -78,7 +77,7 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 				circ->ewfd_padding_unit[slot] = NULL;
 			}
 		} else {
-			EWFD_LOG("Unit: %u already exists. Ingore.", conf->unit_uuid);
+			EWFD_LOG("Unit: %u already exists in Slot: %u. Ingore.", conf->unit_uuid, conf->unit_slot);
 		}
 		
 	} SMARTLIST_FOREACH_END(conf);
@@ -90,6 +89,9 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 * set 
 */
 int ewfd_handle_padding_negotiate(circuit_t *circ, circpad_negotiate_t *negotiate) {
+	int retval = 0;
+	bool should_response = true;
+	EWFD_LOG("handle: %d", negotiate->command);
 	if (negotiate->command == CIRCPAD_COMMAND_EWFD_START) {
 		if (ewfd_add_unit_to_circ_by_uuid(circ, negotiate->machine_type)) {
 			if (negotiate->machine_ctr && circ->padding_machine_ctr != negotiate->machine_ctr) {
@@ -97,28 +99,35 @@ int ewfd_handle_padding_negotiate(circuit_t *circ, circpad_negotiate_t *negotiat
 					"%u vs %u", circ->padding_machine_ctr, negotiate->machine_ctr);
 			}
 			circpad_cell_event_nonpadding_received(circ);
+		} else {
+			retval = -1;
 		}
-		return 0;
-	} 
+	}
 	else if (negotiate->command == CIRCPAD_COMMAND_EWFD_STOP) {
 		if (free_ewfd_padding_unit(circ, negotiate->machine_type, negotiate->machine_ctr)) {
 			EWFD_LOG("OR stop padding unit: %d", negotiate->machine_type);
 			circpad_padding_negotiated(circ, negotiate->machine_type,
 				negotiate->command, CIRCPAD_RESPONSE_OK,
 				negotiate->machine_ctr);
-			return 0;
 		} else {
+			should_response = false;
 			if (negotiate->machine_ctr <= circ->padding_machine_ctr) {
 				EWFD_LOG("OR stop old padding unit: %u %u", negotiate->machine_type, negotiate->machine_ctr);
-				return 0;
 			} else {
 				EWFD_LOG("WARN: OR stop unkown padding unit: %u %u", negotiate->machine_type, negotiate->machine_ctr);
-				return -1;
+				retval = -1;
 			}
 		}
 	} 
 	else if (negotiate->command == CIRCPAD_COMMAND_EWFD_DATA) {
 
+	}
+
+	if (should_response) {
+		circpad_padding_negotiated(circ, negotiate->machine_type,
+				negotiate->command,
+				(retval == 0) ? CIRCPAD_RESPONSE_OK : CIRCPAD_RESPONSE_ERR,
+				negotiate->machine_ctr);
 	}
 
 	return 0;
@@ -183,7 +192,7 @@ static bool ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid) {
 
 	if (circ->ewfd_padding_unit[slot] != NULL) {
 		free_ewfd_padding_unit(circ, unit_uuid, circ->padding_machine_ctr);
-		EWFD_LOG("Unit already exists. Replace");
+		EWFD_LOG("Unit already exists. Replace. Slot: %u uuid: %d", slot, unit_uuid);
 		tor_free(circ->ewfd_padding_unit[slot]);
 		circ->ewfd_padding_unit[slot] = NULL;
 	}

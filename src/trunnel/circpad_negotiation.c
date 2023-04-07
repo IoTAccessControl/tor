@@ -270,7 +270,7 @@ circpad_negotiate_parse_into(circpad_negotiate_t *obj, const uint8_t *input, con
   CHECK_REMAINING(1, truncated);
   obj->command = (trunnel_get_uint8(ptr));
   remaining -= 1; ptr += 1;
-  if (! (obj->command == CIRCPAD_COMMAND_START || obj->command == CIRCPAD_COMMAND_STOP))
+  if (! (obj->command > CIRCPAD_COMMAND_POS_FIRST && obj->command < CIRCPAD_COMMAND_POS_LAST))
     goto fail;
 
   /* Parse u8 machine_type */
