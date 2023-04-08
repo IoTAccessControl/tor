@@ -2346,6 +2346,16 @@ circpad_padding_is_from_expected_hop(circuit_t *circ,
     return 0;
 
   FOR_EACH_CIRCUIT_MACHINE_BEGIN(i) {
+    /** Can match any eWFD padding unit. */
+    if (circ->ewfd_padding_unit[i] != NULL) {
+      target_hop = circuit_get_cpath_hop(TO_ORIGIN_CIRCUIT(circ),
+                    circ->ewfd_padding_unit[i]->conf->target_hopnum);
+      if (target_hop == from_hop)
+        return 1;
+    }
+  } FOR_EACH_CIRCUIT_MACHINE_END;
+
+  FOR_EACH_CIRCUIT_MACHINE_BEGIN(i) {
     /* We have to check padding_machine and not padding_info/active
      * machines here because padding may arrive after we shut down a
      * machine. The info is gone, but the padding_machine waits
@@ -3003,6 +3013,7 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
+  EWFD_LOG("relay padding negotiate: %u", circ->n_circ_id);
   if (circpad_negotiate_parse(&negotiate, cell->payload+RELAY_HEADER_SIZE,
                                CELL_PAYLOAD_SIZE-RELAY_HEADER_SIZE) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_CIRC,
@@ -3010,7 +3021,6 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
-  EWFD_LOG("relay padding_negotiate: %d cmd: %d", CIRCUIT_IS_ORIGIN(circ), negotiate->command);
   if (negotiate->command >= CIRCPAD_COMMAND_EWFD_START && negotiate->command <= CIRCPAD_COMMAND_EWFD_STOP) {
     return ewfd_handle_padding_negotiate(circ, negotiate);
   }
@@ -3093,8 +3103,10 @@ circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
     return -1;
   }
 
-  if (layer_hint != NULL && layer_hint->extend_info != NULL)
-    EWFD_LOG("negotiated hop: %s", layer_hint->extend_info->nickname);
+  if (layer_hint != NULL && layer_hint->extend_info != NULL) {
+    EWFD_LOG("Padding Negotiated from: %s circ: %d", layer_hint->extend_info->nickname, 
+      TO_ORIGIN_CIRCUIT(circ)->global_identifier);
+  }
 
   /* Verify this came from the expected hop */
   if (!circpad_padding_is_from_expected_hop(circ, layer_hint)) {
@@ -3110,6 +3122,10 @@ circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
           "Received malformed PADDING_NEGOTIATED cell on circuit %u; "
           "dropping.", TO_ORIGIN_CIRCUIT(circ)->global_identifier);
     return -1;
+  }
+
+  if (negotiated->command >= CIRCPAD_COMMAND_EWFD_START && negotiated->command <= CIRCPAD_COMMAND_EWFD_STOP) {
+    return ewfd_handle_padding_negotiated(circ, negotiated);
   }
 
   if (negotiated->command == CIRCPAD_COMMAND_STOP) {

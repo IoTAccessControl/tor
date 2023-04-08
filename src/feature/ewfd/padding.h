@@ -30,12 +30,13 @@ void ewfd_padding_free(void);
 
 
 int ewfd_handle_padding_negotiate(circuit_t *circ, circpad_negotiate_t *negotiate);
+int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negotiated);
 
 // dispatch padding commands
 int add_ewfd_units_on_circ(circuit_t *circ);
+void free_all_ewfd_units_on_circ(circuit_t *circ);
 // int on_add_ewfd_units_on_circ();
 
-int remove_ewfd_units_on_circ(circuit_t *circ);
 // int on_remove_ewfd_units_on_circ();
 
 int trigger_ewfd_units_on_circ(circuit_t *circ);

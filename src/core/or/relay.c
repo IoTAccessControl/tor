@@ -1630,7 +1630,7 @@ handle_relay_cell_command(cell_t *cell, circuit_t *circ,
 
   tor_assert(rh);
 
-  EWFD_LOG("[receive cell]  command: [%s] %s", relay_command_to_string(rh->command), 
+  EWFD_LOG("[receive cell] command: [%s] %s", relay_command_to_string(rh->command), 
     ewfd_get_circuit_info(circ));
 
   /* First pass the cell to the circuit padding subsystem, in case it's a

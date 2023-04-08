@@ -115,6 +115,7 @@
 #include "core/or/extend_info_st.h"
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
+#include "feature/ewfd/padding.h"
 
 /********* START VARIABLES **********/
 
@@ -1259,6 +1260,9 @@ circuit_free_(circuit_t *circ)
 
   /* Free any circuit padding structures */
   circpad_circuit_free_all_machineinfos(circ);
+
+  /* Free eWFD Padding Units */
+  free_all_ewfd_units_on_circ(circ);
 
   /* Clear all dangling handle references. */
   circuit_handles_clear(circ);
