@@ -28,6 +28,7 @@ static int padding_units_num = 0;
 static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_conf_st *conf, uint32_t unit_version);
 static void free_ewfd_padding_unit(ewfd_padding_unit_st *unit);
 static bool ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid);
+static ewfd_padding_unit_st* ewfd_get_unit_on_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid);
 static int free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint32_t unit_version);
 
 void ewfd_padding_init() {
@@ -61,9 +62,10 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 		return 0;
 	}
 	origin_circuit_t *on_circ = TO_ORIGIN_CIRCUIT(circ);
-	if (on_circ->padding_negotiation_failed) {
-		return 0;
-	}
+	// 目前一直重试, TODO: 改逻辑
+	// if (on_circ->padding_negotiation_failed) {
+	// 	return 0;
+	// }
 
 	int current_role = ewfd_get_node_role_for_circ(circ);
 
@@ -87,7 +89,8 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 			circ->padding_machine_ctr) < 0) {
 				EWFD_LOG("Faild to notify relay to init padding unit: %d %u", slot, conf->unit_uuid);
 				// on_circ->padding_negotiation_failed = 1;
-				tor_free(circ->ewfd_padding_unit[slot]);
+				circ->padding_machine_ctr--;
+				free_ewfd_padding_unit(circ->ewfd_padding_unit[slot]);
 				circ->ewfd_padding_unit[slot] = NULL;
 			}
 		} else {
@@ -102,15 +105,17 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 void free_all_ewfd_units_on_circ(circuit_t *circ) {
 	int cid = CIRCUIT_IS_ORIGIN(circ) ? TO_ORIGIN_CIRCUIT(circ)->global_identifier : -1;
 	int free_num = 0;
+	int all_num = circ->padding_machine_ctr;
 	for (int i = 0; i < CIRCPAD_MAX_MACHINES; i++) {
 		if (circ->ewfd_padding_unit[i] != NULL) {
 			free_ewfd_padding_unit(circ->ewfd_padding_unit[i]);
 			circ->ewfd_padding_unit[i] = NULL;
+			circ->padding_machine_ctr--;
 			free_num++;
 		}
 	}
 	if (free_num > 0) {
-		EWFD_LOG("Step-n: Free %d/%u eWFD units on circ: %d remain: %d", free_num, circ->padding_machine_ctr, cid, padding_units_num);
+		EWFD_LOG("Step-n: Free %d/%d eWFD units on circ: %d remain: %d", free_num, all_num, cid, padding_units_num);
 	}
 }
 
@@ -181,9 +186,12 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 					"%u (%d)", TO_ORIGIN_CIRCUIT(circ)->global_identifier, circ->purpose);
 			}
 		} else {
-			EWFD_LOG("Seuccess to init EWFD Padding Unit on this node uuid:%u version:%u", negotiated->machine_type, negotiated->machine_ctr);
+			ewfd_padding_unit_st *unit = ewfd_get_unit_on_circ_by_uuid(circ, negotiated->machine_type);
+			if (unit != NULL) {
+				unit->peer_is_up = true;
+				EWFD_LOG("Seuccess to init EWFD Padding Unit on peer uuid:%u version:%u", negotiated->machine_type, negotiated->machine_ctr);
+			}
 		}
-		
 	}
 
 	circpad_negotiated_free(negotiated);
@@ -276,6 +284,15 @@ static bool ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid) {
 	}
 
 	return true;
+}
+
+static ewfd_padding_unit_st* ewfd_get_unit_on_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid) {
+	for (int i = 0; i < CIRCPAD_MAX_MACHINES; i++) {
+		if (circ->ewfd_padding_unit[i] && circ->ewfd_padding_unit[i]->conf->unit_uuid == unit_uuid) {
+			return circ->ewfd_padding_unit[i];
+		}
+	}
+	return NULL;
 }
 
 static int free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint32_t unit_version) {
