@@ -148,6 +148,7 @@
 #include "core/or/socks_request_st.h"
 
 #include "core/or/congestion_control_flow.h"
+#include "feature/ewfd/debug.h"
 
 /**
  * On Windows and Linux we cannot reliably bind() a socket to an
@@ -5163,7 +5164,7 @@ static int
 connection_process_inbuf(connection_t *conn, int package_partial)
 {
   tor_assert(conn);
-
+  // EWFD_LOG("connect process buf: %s state: %d", conn_type_to_string(conn->type), conn->state); 
   switch (conn->type) {
     case CONN_TYPE_OR:
       return connection_or_process_inbuf(TO_OR_CONN(conn));

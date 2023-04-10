@@ -357,6 +357,7 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
                                   * we might kill the circ before we relay
                                   * the cells. */
 
+  // EWFD_LOG("Forwad cell is_or: %d is_out: %d", CIRCUIT_IS_ORCIRC(circ), cell_direction == CELL_DIRECTION_OUT);
   append_cell_to_circuit_queue(circ, chan, cell, cell_direction, 0);
   return 0;
 }

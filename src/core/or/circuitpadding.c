@@ -2397,10 +2397,12 @@ circpad_deliver_unrecognized_cell_events(circuit_t *circ,
     /* When direction is out (away from origin), then we received non-padding
        cell coming from the origin to us. */
     circpad_cell_event_nonpadding_received(circ);
+    trigger_ewfd_units_on_circ(circ, false, false);
   } else if (dir == CELL_DIRECTION_IN) {
     /* It's in and not origin, so the cell is going away from us.
      * So we are relaying a non-padding cell towards the origin. */
     circpad_cell_event_nonpadding_sent(circ);
+    trigger_ewfd_units_on_circ(circ, false, true);
   }
 }
 
@@ -2436,9 +2438,11 @@ circpad_deliver_recognized_relay_cell_events(circuit_t *circ,
            CIRCUIT_IS_ORIGIN(circ) ? "origin" : "non-origin",
            CIRCUIT_IS_ORIGIN(circ) ?
              TO_ORIGIN_CIRCUIT(circ)->global_identifier : 0);
+    // trigger_ewfd_units_on_circ(circ, true, false);
   } else {
     /* We received a non-padding cell on the edge */
     circpad_cell_event_nonpadding_received(circ);
+    // trigger_ewfd_units_on_circ(circ, false, false);
   }
 }
 
@@ -2469,6 +2473,7 @@ circpad_deliver_sent_relay_cell_events(circuit_t *circ,
     /* This is a non-padding cell sent from the client or from
      * this node. */
     circpad_cell_event_nonpadding_sent(circ);
+    trigger_ewfd_units_on_circ(circ, true, false);
   }
 }
 
@@ -2805,6 +2810,7 @@ circpad_machines_init(void)
   circpad_machine_relay_hide_rend_circuits(relay_padding_machines);
 
   uint32_t ewfd_policy = get_options()->EWFDPolicy;
+  // ewfd_policy = EWFD_PADDING_APE;
   if (ewfd_policy == EWFD_PADDING_APE) {
     EWFD_LOG("[padding] init APE padding machines");
       /* Register machines for the APE WF defense */
@@ -2812,6 +2818,7 @@ circpad_machines_init(void)
     circpad_machine_client_wf_ape_recv(origin_padding_machines);
     circpad_machine_relay_wf_ape_send(relay_padding_machines);
     circpad_machine_relay_wf_ape_recv(relay_padding_machines);
+    // ewfd_padding_init();
   } else if (ewfd_policy == EWFD_PADDING_EBPF_TEST) {
     EWFD_LOG("[padding] use eBPF test padding units");
     ewfd_padding_init();
@@ -2877,6 +2884,7 @@ circuit_get_nth_node,(origin_circuit_t *circ, int hop))
 {
   crypt_path_t *iter = circuit_get_cpath_hop(circ, hop);
 
+  // EWFD_LOG("circ: %u iter %d state: %d", circ->global_identifier, iter != NULL, iter != NULL ? iter->state : -1);
   if (!iter || iter->state != CPATH_STATE_OPEN)
     return NULL;
 
@@ -2897,6 +2905,7 @@ circpad_circuit_supports_padding(origin_circuit_t *circ,
     return 0;
   }
 
+  // EWFD_LOG("find hop: %d target: %d", hop->nodelist_idx, target_hopnum);
   return circpad_node_supports_padding(hop);
 }
 

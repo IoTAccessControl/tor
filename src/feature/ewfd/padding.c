@@ -1,16 +1,17 @@
 #include "feature/ewfd/padding.h"
 #include "circpad_negotiation.h"
-#include "feature/ewfd/debug.h"
+#include "circpad_negotiation.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/or/circuit_st.h"
 #include "core/or/circuitlist.h"
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
+#include "lib/log/util_bug.h"
 #include "lib/malloc/malloc.h"
 #include "lib/smartlist_core/smartlist_core.h"
 #include "core/or/circuitpadding.h"
-
+#include "feature/ewfd/utils.h"
 
 /**
 协议：
@@ -35,7 +36,8 @@ void ewfd_padding_init() {
 	ewfd_padding_conf_st *st_test = tor_malloc_zero(sizeof(ewfd_padding_conf_st));
 	st_test->unit_slot = 0;
 	st_test->unit_uuid = 1;
-	st_test->target_hopnum = 1;
+	st_test->target_hopnum = 2;
+	st_test->deploy_hop = EWFD_NODE_ROLE_CLIENT; // client only
 	smartlist_add(client_unit_confs, st_test);
 }
 
@@ -54,6 +56,7 @@ void ewfd_padding_free() {
 * neogation -> machine_ctr (发送增加之后的machine_tr)
 */
 int add_ewfd_units_on_circ(circuit_t *circ) {
+	if (client_unit_confs == NULL) return 0;
 	if (!CIRCUIT_IS_ORIGIN(circ)) {
 		return 0;
 	}
@@ -62,15 +65,20 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 		return 0;
 	}
 
+	int current_role = ewfd_get_node_role_for_circ(circ);
+
 	// 初始化所有的padding machine
 	SMARTLIST_FOREACH_BEGIN(client_unit_confs, ewfd_padding_conf_st *, conf) {
+		if (!(conf->deploy_hop & current_role)) {
+			continue;
+		}
 		// add or replace a slot
 		int slot = conf->unit_slot;
 		if (circ->ewfd_padding_unit[slot] == NULL) {
 			ewfd_add_unit_to_circ_by_uuid(circ, conf->unit_uuid);
 
-			EWFD_LOG("STEP-1: Notify peer: %d to init unit uuid:%u version:%u", conf->target_hopnum, conf->unit_uuid,
-				circ->padding_machine_ctr);
+			EWFD_LOG("STEP-1: Notify hop: %d to init unit uuid:%u version:%u on circ: %u", conf->target_hopnum, conf->unit_uuid,
+				circ->padding_machine_ctr, on_circ->global_identifier);
 			// 通知relay开启对应的padding unit
 			// machine_ctr，unit版本号 = 当前machine num
 			if (circpad_negotiate_padding(TO_ORIGIN_CIRCUIT(circ), conf->unit_uuid,
@@ -78,7 +86,7 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 			CIRCPAD_COMMAND_EWFD_START,
 			circ->padding_machine_ctr) < 0) {
 				EWFD_LOG("Faild to notify relay to init padding unit: %d %u", slot, conf->unit_uuid);
-				on_circ->padding_negotiation_failed = 1;
+				// on_circ->padding_negotiation_failed = 1;
 				tor_free(circ->ewfd_padding_unit[slot]);
 				circ->ewfd_padding_unit[slot] = NULL;
 			}
@@ -141,7 +149,7 @@ int ewfd_handle_padding_negotiate(circuit_t *circ, circpad_negotiate_t *negotiat
 		}
 	} 
 	else if (negotiate->command == CIRCPAD_COMMAND_EWFD_DATA) {
-
+		// 传输eWFD插件
 	}
 
 	if (should_response) {
@@ -182,8 +190,33 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 	return 0;
 }
 
-int trigger_ewfd_units_on_circ(circuit_t *circ) {
+/*
+1. 判断方向
+Client(ORIGIN) -> OR
+OR -> Client: 只处理CELL_DIRECTION_IN的包（moving towards the origin）
+OR -> OR: CELL_DIRECTION_OUT忽略
+*/
+int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin) {
+	if (client_unit_confs == NULL) return 0;
+	bool is_origin = CIRCUIT_IS_ORIGIN(circ);
 
+	// no padding units on circ
+	if (circ->padding_machine_ctr == 0) {
+		return 0;
+	}
+	
+	// Client -> OR 
+	if (is_origin && is_send) {
+		EWFD_LOG("trigger_ewfd_units_on_circ Client -> OR ");
+	}
+
+	// OR -> Client
+	if (!is_origin && toward_origin) {
+		EWFD_LOG("trigger_ewfd_units_on_circ OR -> Client ");
+	}
+
+	// timer 触发
+	return 0;
 }
 
 
@@ -205,9 +238,8 @@ static void free_ewfd_padding_unit(ewfd_padding_unit_st *unit) {
 
 // 根据收到的unit type，找到已有的padding unit，到or_circ
 static bool ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid) {
-
 	ewfd_padding_conf_st *target_conf = NULL;
-
+	tor_assert(client_unit_confs);
 	SMARTLIST_FOREACH_BEGIN(client_unit_confs, ewfd_padding_conf_st *, conf) {
 		if (conf->unit_uuid == unit_uuid) {
 			target_conf = conf;
@@ -247,7 +279,7 @@ static bool ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid) {
 }
 
 static int free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint32_t unit_version) {
-		int found = 0;
+	int found = 0;
 
 	for (int i = 0; i < CIRCPAD_MAX_MACHINES; i++) {
 		if (circ->ewfd_padding_unit[i] && circ->ewfd_padding_unit[i]->conf->unit_uuid == unit_uuid) {
