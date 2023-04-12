@@ -2,11 +2,13 @@
 #define EWFD_PADDING_H_
 
 #include "core/or/or.h"
+#include "lib/evloop/timers.h"
 #include "trunnel/circpad_negotiation.h"
 #include <stdint.h>
 #include <stdbool.h>
 
 #define MAX_EWFD_UNITS_ON_CIRC 5
+#define MAX_EWFD_REQUEST_RETRY 5
 
 /**
 unit_idx: slot, 0, 1
@@ -24,17 +26,28 @@ typedef struct ewfd_padding_conf_t {
 /** 将conf，脚本绑定到一个vm上
 */
 typedef struct ewfd_padding_unit_t {
-	uint8_t unit_version; // 区分同一个slot，同一uuid的padding unit
-	bool peer_is_up;      // 确认peer是否已经启动
+	uint8_t unit_version; 	// 区分同一个slot，同一uuid的padding unit
+	bool peer_is_up;		// 确认peer是否已经启动
+	uint8_t retry_num;		// 重试次数
 	struct ewfd_padding_conf_t *conf;
 } ewfd_padding_unit_st;
 
+struct ewfd_ebpf_vm_ctx_t;
 /** TODO: 将circ的padding unit数组换成这个结构体，不和原来的padding machine共享machine_ctr等字段
 */
 typedef struct ewfd_padding_context_t {
 	ewfd_padding_unit_st *slots[MAX_EWFD_UNITS_ON_CIRC];
 	uint8_t units_cnt;
+	uint8_t cur_slot;
+	struct ewfd_ebpf_vm_ctx_t *ebpf_ctx;
 } ewfd_padding_context_st;
+
+typedef struct ewfd_ebpf_vm_ctx_t {
+	uint32_t next_tick;
+	uint32_t last_pkt;
+	uint32_t start_ti;
+	tor_timer_t *ticker;
+} ewfd_ebpf_vm_ctx_st;
 
 // init ewfd padding framework
 void ewfd_padding_init(void);

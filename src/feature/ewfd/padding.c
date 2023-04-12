@@ -1,24 +1,20 @@
 #include "feature/ewfd/padding.h"
-#include "circpad_negotiation.h"
-#include "circpad_negotiation.h"
+
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "circpad_negotiation.h"
 #include "core/or/circuit_st.h"
 #include "core/or/circuitlist.h"
+#include "core/or/or.h"
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
+#include "lib/evloop/timers.h"
 #include "lib/log/util_bug.h"
 #include "lib/malloc/malloc.h"
 #include "lib/smartlist_core/smartlist_core.h"
 #include "core/or/circuitpadding.h"
 #include "feature/ewfd/utils.h"
-
-/**
-协议：
-1. 通过CIRCPAD_COMMAND_EWFD_DATA来同步padding units配置，指定当前circ需要使用的padding unit，
-	让relay去下载或者同步这些需要padding units。
-2. 
-*/
 
 // eBPF code list
 smartlist_t *client_unit_confs = NULL;
@@ -30,6 +26,18 @@ static void free_ewfd_padding_unit(ewfd_padding_unit_st *unit);
 static bool ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid);
 static ewfd_padding_unit_st* ewfd_get_unit_on_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid);
 static int free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint32_t unit_version);
+
+/**
+协议：
+1. 通过CIRCPAD_COMMAND_EWFD_DATA来同步padding units配置，指定当前circ需要使用的padding unit，
+	让relay去下载或者同步这些需要padding units。
+2. 
+*/
+static int ewfd_padding_on_tick(circuit_t *circ);
+static int ewfd_padding_client_to_or(circuit_t *circ);
+static int ewfd_padding_or_to_client(circuit_t *circ);
+static int ewfd_padding_op_dummy_packet(circuit_t *circ);
+static int ewfd_padding_op_delay_packet(circuit_t *circ);
 
 void ewfd_padding_init() {
 	EWFD_LOG("ewfd_padding_init");
@@ -78,7 +86,9 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 		int slot = conf->unit_slot;
 		if (circ->ewfd_padding_unit[slot] == NULL) {
 			ewfd_add_unit_to_circ_by_uuid(circ, conf->unit_uuid);
-
+		}
+		if (circ->ewfd_padding_unit[slot] != NULL && !circ->ewfd_padding_unit[slot]->peer_is_up
+			&& circ->ewfd_padding_unit[slot]->retry_num < MAX_EWFD_REQUEST_RETRY) {
 			EWFD_LOG("STEP-1: Notify hop: %d to init unit uuid:%u version:%u on circ: %u", conf->target_hopnum, conf->unit_uuid,
 				circ->padding_machine_ctr, on_circ->global_identifier);
 			// 通知relay开启对应的padding unit
@@ -87,11 +97,8 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 			conf->target_hopnum,
 			CIRCPAD_COMMAND_EWFD_START,
 			circ->padding_machine_ctr) < 0) {
+				circ->ewfd_padding_unit[slot]->retry_num += 1;
 				EWFD_LOG("Faild to notify relay to init padding unit: %d %u", slot, conf->unit_uuid);
-				// on_circ->padding_negotiation_failed = 1;
-				circ->padding_machine_ctr--;
-				free_ewfd_padding_unit(circ->ewfd_padding_unit[slot]);
-				circ->ewfd_padding_unit[slot] = NULL;
 			}
 		} else {
 			EWFD_LOG("Unit: %u already exists in Slot: %u. Ingore.", conf->unit_uuid, conf->unit_slot);
@@ -212,16 +219,26 @@ int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin
 	if (circ->padding_machine_ctr == 0) {
 		return 0;
 	}
-	
+
+	ewfd_padding_on_tick(circ);
+
 	// Client -> OR 
 	if (is_origin && is_send) {
 		EWFD_LOG("trigger_ewfd_units_on_circ Client -> OR ");
+		ewfd_padding_client_to_or(circ);
 	}
 
 	// OR -> Client
 	if (!is_origin && toward_origin) {
 		EWFD_LOG("trigger_ewfd_units_on_circ OR -> Client ");
+		ewfd_padding_or_to_client(circ);
 	}
+
+	// tor-0.4.7.10/src/core/or/circuitpadding.c
+	// TODO: 1. 重构
+	// timer_cb_fn_t()
+	// timer_schedule(mi->padding_timer, &timeout);
+
 
 	// timer 触发
 	return 0;
@@ -311,4 +328,28 @@ static int free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint32
 		}
 	}
 	return found;
+}
+
+static int ewfd_padding_on_tick(circuit_t *circ) {
+
+	return 0;
+}
+
+static int ewfd_padding_client_to_or(circuit_t *circ) {
+	return 0;
+}
+
+static int ewfd_padding_or_to_client(circuit_t *circ) {
+
+	return 0;
+}
+
+static int ewfd_padding_op_dummy_packet(circuit_t *circ) {
+
+	return 0;
+}
+
+
+static int ewfd_padding_op_delay_packet(circuit_t *circ) {
+	return 0;
 }
