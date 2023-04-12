@@ -1,0 +1,12 @@
+noinst_LIBRARIES += src/lib/libtor-ebpf.a
+
+src_lib_libtor_ebpf_a_SOURCES = \
+	src/lib/ebpf/ebpf_vm.c \
+	src/lib/ebpf/ebpf_jit.c \
+	src/lib/ebpf/ebpf_jit_x86_64.c
+
+noinst_HEADERS += \
+	src/lib/ebpf/ebpf_inst.h \
+	src/lib/ebpf/ebpf_vm.h \
+	src/lib/ebpf/ebpf_jit_x86_64.h \
+	src/lib/ebpf/libebpf.h

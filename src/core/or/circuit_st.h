@@ -18,7 +18,7 @@
 
 #include "core/or/cell_queue_st.h"
 #include "ext/ht.h"
-#include "feature/ewfd/padding.h"
+#include "feature/ewfd/circuit_padding.h"
 
 struct hs_token_t;
 struct circpad_machine_spec_t;
@@ -242,9 +242,9 @@ struct circuit_t {
    *  and we can have up to CIRCPAD_MAX_MACHINES such machines. */
   struct circpad_machine_runtime_t *padding_info[CIRCPAD_MAX_MACHINES];
 
-  /** eWFD padding unit of this circuit. One unit can execute a fixed eBPF prog.
+  /** eWFD padding runtime for executing eWFD selector units and padding units.
   */
-  struct ewfd_padding_unit_t *ewfd_padding_unit[CIRCPAD_MAX_MACHINES];
+  struct ewfd_padding_runtime_t *ewfd_padding_rt;
 
   /** padding_machine_ctr increments each time a new padding machine
    * is negotiated. It is used for shutdown conditions, to ensure

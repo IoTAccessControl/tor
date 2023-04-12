@@ -9,5 +9,4 @@ enum MyPaddingType {
 };
 
 
-
 #endif // EWFD_CONF_H_

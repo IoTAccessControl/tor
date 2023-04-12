@@ -115,7 +115,7 @@
 #include "core/or/extend_info_st.h"
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
-#include "feature/ewfd/padding.h"
+#include "feature/ewfd/circuit_padding.h"
 
 /********* START VARIABLES **********/
 

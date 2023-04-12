@@ -41,17 +41,17 @@ Notes:
 */
 const char *ewfd_get_circuit_info(circuit_t *circ) {
 	tor_assert(circ);
-	char *self = get_options()->Nickname;
-	const char *node_name = "unkown";
+	// char *self = get_options()->Nickname;
+	const char *next_node = "unkown";
+	const char *prev_node = "unkown";
 	// char *kh = "";
-	uint32_t peer_circ_id = 0;
+	uint32_t next_circ_id = 0, prev_circ_id = 0;
 	int gid = -1;
 	
 	if (CIRCUIT_IS_ORIGIN(circ)) {
 		origin_circuit_t *oric = TO_ORIGIN_CIRCUIT(circ);
 		tor_assert(oric->cpath);
-		node_name = oric->cpath->extend_info->nickname;
-		peer_circ_id = circ->n_circ_id;
+		next_node = oric->cpath->extend_info->nickname;
 		// kh = oric->cpath->rend_circ_nonce;
 		gid = oric->global_identifier;
 	} else {
@@ -67,14 +67,22 @@ const char *ewfd_get_circuit_info(circuit_t *circ) {
 			}
 		}
 
+		if (circ->n_hop != NULL) {
+			next_node = circ->n_hop->nickname;
+			next_circ_id = circ->n_circ_id;
+		}
+
 		if (oric->p_hop != NULL) {
-			node_name = oric->p_hop->nickname;
+			prev_node = oric->p_hop->nickname;
+			prev_circ_id = oric->p_circ_id;
 		} 
-		peer_circ_id = oric->p_circ_id;
-		// kh = oric->rend_circ_nonce;
 	}
 
-	tor_snprintf(ewfd_circuit_log, 64, "self:%s peer:[%s](%u) gid:%d", self, node_name, peer_circ_id, gid);
+	if (gid != -1) {
+		tor_snprintf(ewfd_circuit_log, 64, "origin-circ: %d next: %s", gid, next_node);
+	} else {
+		tor_snprintf(ewfd_circuit_log, 64, "or-circ prev: [%s](%u) next: [%s](%u)", prev_node, prev_circ_id, next_node, next_circ_id);
+	}
 	return ewfd_circuit_log;
 }
 

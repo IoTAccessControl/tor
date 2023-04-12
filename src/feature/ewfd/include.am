@@ -3,13 +3,18 @@
 LIBTOR_APP_A_SOURCES += 			\
 	src/feature/ewfd/utils.c		\
 	src/feature/ewfd/debug.c		\
-	src/feature/ewfd/ebpf_rt.c		\
-	src/feature/ewfd/padding.c 
+	src/feature/ewfd/ewfd_rt.c		\
+	src/feature/ewfd/ewfd_unit.c	\
+	src/feature/ewfd/ewfd_dev.c		\
+	src/feature/ewfd/circuit_padding.c \
+	src/feature/ewfd/ewfd.c
 
 # ADD_C_FILE: INSERT HEADERS HERE.
 noinst_HEADERS +=					\
 	src/feature/ewfd/utils.h		\
 	src/feature/ewfd/debug.h		\
-	src/feature/ewfd/padding.h		\
-	src/feature/ewfd/ebpf_rt.h		\
+	src/feature/ewfd/circuit_padding.h		\
+	src/feature/ewfd/ewfd_rt.h		\
+	src/feature/ewfd/ewfd_unit.h	\
+	src/feature/ewfd/ewfd_dev.h		\
 	src/feature/ewfd/ewfd.h

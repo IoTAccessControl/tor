@@ -79,10 +79,10 @@
 #include "app/config/config.h"
 #include "feature/ewfd/ewfd_conf.h"
 #include "feature/ewfd/debug.h"
-#include "feature/ewfd/padding.h"
+#include "feature/ewfd/ewfd.h"
+#include "feature/ewfd/circuit_padding.h"
 #include <stdint.h>
 #include "circpad_negotiation.h"
-#include "feature/ewfd/padding.h"
 
 static inline circpad_circuit_state_t circpad_circuit_state(
                                         origin_circuit_t *circ);
@@ -2345,15 +2345,24 @@ circpad_padding_is_from_expected_hop(circuit_t *circ,
   if (!CIRCUIT_IS_ORIGIN(circ))
     return 0;
 
-  FOR_EACH_CIRCUIT_MACHINE_BEGIN(i) {
-    /** Can match any eWFD padding unit. */
-    if (circ->ewfd_padding_unit[i] != NULL) {
+  if (circ->ewfd_padding_rt != NULL) {
+    for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
+      if (circ->ewfd_padding_rt->schedule_slots[i] == NULL) 
+        continue;
       target_hop = circuit_get_cpath_hop(TO_ORIGIN_CIRCUIT(circ),
-                    circ->ewfd_padding_unit[i]->conf->target_hopnum);
+                  circ->ewfd_padding_rt->schedule_slots[i]->conf->target_hopnum);
       if (target_hop == from_hop)
         return 1;
     }
-  } FOR_EACH_CIRCUIT_MACHINE_END;
+    for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
+      if (circ->ewfd_padding_rt->padding_slots[i] == NULL) 
+        continue;
+      target_hop = circuit_get_cpath_hop(TO_ORIGIN_CIRCUIT(circ),
+                  circ->ewfd_padding_rt->padding_slots[i]->conf->target_hopnum);
+      if (target_hop == from_hop)
+        return 1;
+    }
+  }
 
   FOR_EACH_CIRCUIT_MACHINE_BEGIN(i) {
     /* We have to check padding_machine and not padding_info/active
@@ -2397,12 +2406,12 @@ circpad_deliver_unrecognized_cell_events(circuit_t *circ,
     /* When direction is out (away from origin), then we received non-padding
        cell coming from the origin to us. */
     circpad_cell_event_nonpadding_received(circ);
-    trigger_ewfd_units_on_circ(circ, false, false);
+    trigger_ewfd_units_on_circ(circ, false, false, UNRECOGNISED_RELAY_COMMAND);
   } else if (dir == CELL_DIRECTION_IN) {
     /* It's in and not origin, so the cell is going away from us.
      * So we are relaying a non-padding cell towards the origin. */
     circpad_cell_event_nonpadding_sent(circ);
-    trigger_ewfd_units_on_circ(circ, false, true);
+    trigger_ewfd_units_on_circ(circ, false, true, UNRECOGNISED_RELAY_COMMAND);
   }
 }
 
@@ -2473,7 +2482,7 @@ circpad_deliver_sent_relay_cell_events(circuit_t *circ,
     /* This is a non-padding cell sent from the client or from
      * this node. */
     circpad_cell_event_nonpadding_sent(circ);
-    trigger_ewfd_units_on_circ(circ, true, false);
+    trigger_ewfd_units_on_circ(circ, true, false, relay_command);
   }
 }
 
@@ -2821,7 +2830,7 @@ circpad_machines_init(void)
     // ewfd_padding_init();
   } else if (ewfd_policy == EWFD_PADDING_EBPF_TEST) {
     EWFD_LOG("[padding] use eBPF test padding units");
-    ewfd_padding_init();
+    ewfd_framework_init();
   }
   else {
     EWFD_LOG("[padding] no padding machines");
@@ -2840,7 +2849,7 @@ circpad_machines_init(void)
 void
 circpad_machines_free(void)
 {
-  ewfd_padding_free();
+  ewfd_framework_free();
   if (origin_padding_machines) {
     SMARTLIST_FOREACH(origin_padding_machines,
                       circpad_machine_spec_t *,

@@ -1,0 +1,12 @@
+
+schedule_unit:
+  - name: default.ewfd
+
+padding_unit:
+  - index: 
+    - front.ewfd
+    - gan.ewfd
+    - tamarrow.ewfd
+
+timeline:
+  - t1: timeline-1.pack
