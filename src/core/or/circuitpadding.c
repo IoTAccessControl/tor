@@ -2401,6 +2401,7 @@ circpad_deliver_unrecognized_cell_events(circuit_t *circ,
   if (CIRCUIT_IS_ORIGIN(circ)) {
     return;
   }
+  EWFD_LOG("Deliver a cell");
 
   if (dir == CELL_DIRECTION_OUT) {
     /* When direction is out (away from origin), then we received non-padding
@@ -2451,7 +2452,7 @@ circpad_deliver_recognized_relay_cell_events(circuit_t *circ,
   } else {
     /* We received a non-padding cell on the edge */
     circpad_cell_event_nonpadding_received(circ);
-    // trigger_ewfd_units_on_circ(circ, false, false);
+    trigger_ewfd_units_on_circ(circ, false, true, relay_command);
   }
 }
 
@@ -3031,7 +3032,7 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
-  EWFD_LOG("relay padding negotiate: %u", circ->n_circ_id);
+  // EWFD_LOG("relay padding negotiate: %u", circ->n_circ_id);
   if (circpad_negotiate_parse(&negotiate, cell->payload+RELAY_HEADER_SIZE,
                                CELL_PAYLOAD_SIZE-RELAY_HEADER_SIZE) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_CIRC,
@@ -3039,7 +3040,7 @@ circpad_handle_padding_negotiate(circuit_t *circ, cell_t *cell)
     return -1;
   }
 
-  if (negotiate->command >= CIRCPAD_COMMAND_EWFD_START && negotiate->command <= CIRCPAD_COMMAND_EWFD_STOP) {
+  if (negotiate->command >= CIRCPAD_COMMAND_EWFD_START && negotiate->command <= CIRCPAD_COMMAND_EWFD_LAST) {
     return ewfd_handle_padding_negotiate(circ, negotiate);
   }
 
@@ -3121,10 +3122,10 @@ circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
     return -1;
   }
 
-  if (layer_hint != NULL && layer_hint->extend_info != NULL) {
-    EWFD_LOG("Padding Negotiated from: %s circ: %d", layer_hint->extend_info->nickname, 
-      TO_ORIGIN_CIRCUIT(circ)->global_identifier);
-  }
+  // if (layer_hint != NULL && layer_hint->extend_info != NULL) {
+  //   EWFD_LOG("Padding Negotiated from: %s circ: %d", layer_hint->extend_info->nickname, 
+  //     TO_ORIGIN_CIRCUIT(circ)->global_identifier);
+  // }
 
   /* Verify this came from the expected hop */
   if (!circpad_padding_is_from_expected_hop(circ, layer_hint)) {
@@ -3142,7 +3143,7 @@ circpad_handle_padding_negotiated(circuit_t *circ, cell_t *cell,
     return -1;
   }
 
-  if (negotiated->command >= CIRCPAD_COMMAND_EWFD_START && negotiated->command <= CIRCPAD_COMMAND_EWFD_STOP) {
+  if (negotiated->command >= CIRCPAD_COMMAND_EWFD_START && negotiated->command <= CIRCPAD_COMMAND_EWFD_LAST) {
     return ewfd_handle_padding_negotiated(circ, negotiated);
   }
 

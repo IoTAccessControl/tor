@@ -45,9 +45,6 @@
  * types of relay cells, launching requests or transmitting data as needed.
  **/
 
-#include "feature/ewfd/debug.h"
-#include "lib/log/util_bug.h"
-#include <stdint.h>
 #define RELAY_PRIVATE
 #include "core/or/or.h"
 #include "feature/client/addressmap.h"
@@ -103,6 +100,9 @@
 #include "core/or/congestion_control_common.h"
 #include "core/or/congestion_control_flow.h"
 #include "feature/ewfd/utils.h"
+#include "feature/ewfd/debug.h"
+#include "lib/log/util_bug.h"
+#include <stdint.h>
 
 static edge_connection_t *relay_lookup_conn(circuit_t *circ, cell_t *cell,
                                             cell_direction_t cell_direction,

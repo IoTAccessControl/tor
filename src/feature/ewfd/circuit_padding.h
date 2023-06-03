@@ -19,8 +19,20 @@ enum {
 };
 
 enum {
+	EWFD_SCHEDULE_RESET_UNIT = 1,
+};
+
+enum {
 	EWFD_OP_DUMMY_PACKET = 1,
 	EWFD_OP_DELAY_PACKET,
+};
+
+enum {
+	EWFD_PEER_NONE = 0, // 初始状态，没有setup unit到slot
+	EWFD_PEER_CREATE,
+	EWFD_PEER_WORK,
+	EWFD_PEER_PAUSE,
+	EWFD_PEER_CLEAR,
 };
 
 /**
@@ -29,7 +41,7 @@ unit_uuid: 脚本编号
 typedef struct ewfd_padding_conf_t {
 	uint8_t unit_uuid;
 	uint8_t unit_type; // schedule or padding unit
-	uint8_t deploy_hop; // bit3, [Exit][OR][Client]
+	uint8_t initial_hop; // bit3, [Exit][OR][Client]
 	uint8_t target_hopnum;
 	uint32_t tick_interval;  // ms for tick gap, 10-6 second, 
 	ewfd_code_st *init_code; // init map/timeline
@@ -40,7 +52,7 @@ typedef struct ewfd_padding_conf_t {
 */
 typedef struct ewfd_padding_unit_t {
 	uint8_t unit_version; 	// 区分同一uuid的padding unit, version = current unit_cnt
-	bool peer_is_up;		// 确认peer是否已经启动
+	uint8_t peer_state;		// 确认peer是否已经启动
 	uint8_t retry_num;		// 重试次数
 	struct ewfd_padding_conf_t *conf;
 	struct ewfd_unit_t *ewfd_unit; // 保存ebpf jit函数
@@ -51,10 +63,20 @@ typedef struct ewfd_padding_unit_t {
 typedef struct ewfd_circ_status_t {
 	// __IN
 	// uint32_t last_delay_ti;
-	uint32_t start_ti;
-	uint32_t last_dummy_ti;
-	uint32_t padding_bengin_ti;
+	uint32_t padding_start_ti; // first padding init time
+	uint32_t last_padding_ti;  // previous padding unit exec time
+	uint32_t last_cell_ti;     // last cell send/receive time
+	uint32_t now_ti;
+	
 	uintptr_t on_circ;
+
+	uint32_t send_cell_cnt;
+	uint32_t recv_cell_cnt;
+
+	// command 
+	uint8_t cur_padding_unit;
+	uint8_t last_relay_cmd;
+	uint8_t current_relay_cmd;
 
 	// __OUT 
 	uint32_t next_tick;
@@ -72,13 +94,13 @@ typedef struct ewfd_circ_status_t {
 typedef struct ewfd_unit_ctx_t {
 	uint8_t active_slot; // 同一时刻只能执行一种unit
 	bool is_enable;		 // timer is scheduled
-	uint32_t next_tick;
+	uint32_t next_tick;  // 所有的时间单位都是ms
 	uint32_t last_tick_ti;
-	uint32_t start_ti;
+	uint32_t padding_start_ti;
 	uint32_t total_dummy_pkt;
 	uint32_t total_delay_pkt;
 	tor_timer_t *ticker;
-} ewfd_ebpf_unit_ctx_st;
+} ewfd_unit_ctx_st;
 
 /** 目标：padding-unit和schedule-unit尽量共享最多的结构体，ctx只需要一个，避免同步tor状态同步两次
 支持两种eWFD unit：
@@ -106,6 +128,9 @@ int add_ewfd_units_on_circ(circuit_t *circ);
 void free_all_ewfd_units_on_circ(circuit_t *circ);
 
 int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin, uint8_t relay_command);
+
+
+bool ewfd_schedule_op(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args);
 
 bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay);
 

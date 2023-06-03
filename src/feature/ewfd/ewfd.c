@@ -4,14 +4,15 @@
 #include "feature/ewfd/circuit_padding.h"
 #include "lib/log/util_bug.h"
 #include "ext/tor_queue.h"
+#include "feature/ewfd/ewfd_conf.h"
 
 
 #define MIN_EWFD_TICK_GAP_US 50 // 50ms
+#define MIN_EWFD_SCHEDULE_GAP_US 500 // 500ms
 
 // eBPF code list
-smartlist_t *client_unit_confs = NULL;
+ewfd_client_conf_st *ewfd_client_conf = NULL;
 ewfd_framework_st *ewfd_framework_instance = NULL;
-
 
 typedef struct ewfd_dummy_packet_t {
 	TOR_SIMPLEQ_ENTRY(ewfd_dummy_packet_t) next;
@@ -48,18 +49,21 @@ void ewfd_framework_init(void) {
 
 	parser_client_conf();
 
-	init_framework_ticker();
+	// init_framework_ticker();
 }
 
 void ewfd_framework_free(void) {
 	EWFD_LOG("ewfd_padding_free");
-	if (client_unit_confs != NULL) {
-		SMARTLIST_FOREACH(client_unit_confs,
-			ewfd_padding_conf_st *,
-			conf, tor_free(conf));
-		smartlist_free(client_unit_confs);
+	if (ewfd_client_conf != NULL) {
+		if (ewfd_client_conf->client_unit_confs != NULL) {
+			SMARTLIST_FOREACH(ewfd_client_conf->client_unit_confs,
+				ewfd_padding_conf_st *,
+				conf, tor_free(conf));
+			smartlist_free(ewfd_client_conf->client_unit_confs);
+		}
+		tor_free(ewfd_client_conf);
 	}
-	
+
 	if (ewfd_framework_instance != NULL) {
 		// free queue
 		free_ewfd_queues(ewfd_framework_instance);
@@ -105,16 +109,35 @@ int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti) {
 }
 
 static void parser_client_conf(void) {
-	if (client_unit_confs == NULL) {
-		client_unit_confs = smartlist_new();
+	if (ewfd_client_conf == NULL) {
+		ewfd_client_conf = tor_malloc_zero(sizeof(ewfd_client_conf_st));
 	}
+	if (ewfd_client_conf->client_unit_confs == NULL) {
+		ewfd_client_conf->client_unit_confs = smartlist_new();
+	}
+	/* schedule unit和padding unit的uuid不能重复
+	*/
 	ewfd_padding_conf_st *st_test = tor_malloc_zero(sizeof(ewfd_padding_conf_st));
 	st_test->unit_uuid = 1;
 	st_test->unit_type = EWFD_UNIT_PADDING;
 	st_test->target_hopnum = 2;
 	st_test->tick_interval = MIN_EWFD_TICK_GAP_US;
-	st_test->deploy_hop = EWFD_NODE_ROLE_CLIENT; // client only
-	smartlist_add(client_unit_confs, st_test);
+	st_test->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
+	smartlist_add(ewfd_client_conf->client_unit_confs, st_test);
+
+	// schedule unit
+	ewfd_padding_conf_st *schedule_unit = tor_malloc_zero(sizeof(ewfd_framework_st));
+	schedule_unit->unit_uuid = 2;
+	schedule_unit->unit_type = EWFD_UNIT_SCHEDULE;
+	schedule_unit->target_hopnum = 2;
+	schedule_unit->tick_interval = MIN_EWFD_TICK_GAP_US * 10;
+	schedule_unit->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
+	smartlist_add(ewfd_client_conf->client_unit_confs, schedule_unit);
+
+	ewfd_client_conf->active_schedule_slot = 0;
+	ewfd_client_conf->active_padding_slot = 0;
+
+	ewfd_client_conf->need_reload = true;
 }
 
 static void init_framework_ticker(void) {

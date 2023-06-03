@@ -14,7 +14,7 @@
  * 用于调试和测试
 */
 
-uint64_t ewfd_default_seletor_unit(ewfd_circ_status_st *ewfd_status);
+uint64_t ewfd_default_schedule_unit(ewfd_circ_status_st *ewfd_status);
 
 //
 uint64_t ewfd_default_init_unit(void);

@@ -10,13 +10,13 @@ int ewfd_get_node_role_for_circ(circuit_t *circ) {
 	bool is_origin = CIRCUIT_IS_ORIGIN(circ);
 	int roles = 0;
 	if (is_origin && is_client) { // client
-		roles |= 0b1;
+		roles |= EWFD_NODE_ROLE_CLIENT;
 	} else { // Exit
 		bool is_exit = get_options()->ExitRelay != 0;
 		if (is_exit) {
-			roles |= 0b100;
+			roles |= EWFD_NODE_ROLE_EXIT;
 		} else { // OR
-			roles |= 0b10;
+			roles |= EWFD_NODE_ROLE_OR;
 		}
 	}
 	

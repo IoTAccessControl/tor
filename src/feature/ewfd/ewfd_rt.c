@@ -29,7 +29,22 @@
 测试阶段，一次生成3-5个padding包
 */
 void run_ewfd_schedule_vm(ewfd_padding_runtime_st *ewfd_rt) {
+	uint32_t now_ti = monotime_absolute_msec();
+	ewfd_rt->circ_status.now_ti = now_ti;
 
+	// 根据flow状态，开启和切换算法
+	uint64_t ret = ewfd_default_schedule_unit(&ewfd_rt->circ_status);
+	
+	int op = (int) (ret >> 32);
+	int args = (int) (ret & 0xffffffff);
+
+	if (op == EWFD_SCHEDULE_RESET_UNIT) {
+		uint8_t unit_uuid = (uint8_t) args >> 8;
+		uint8_t state = (uint8_t) args & 0xff;
+
+		ewfd_schedule_op(ewfd_rt->on_circ, EWFD_SCHEDULE_RESET_UNIT, unit_uuid, &state);
+		EWFD_LOG("[schedule-unit] reset unit: %d, state: %d", unit_uuid, state);
+	}
 }
 
 void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
@@ -37,13 +52,10 @@ void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
 
 	// schedule
 	if (ewfd_rt->padding_unit_ctx.total_dummy_pkt > 1000) {
+		EWFD_LOG("exceed maxiam dummy packet\n");
 		return;
 	}
-
-	if (ewfd_rt->padding_unit_ctx.total_dummy_pkt == 0) {
-		ewfd_rt->circ_status.start_ti = monotime_absolute_msec();
-		ewfd_rt->circ_status.last_dummy_ti = ewfd_rt->circ_status.start_ti;
-	}
+	ewfd_rt->circ_status.now_ti = monotime_absolute_msec();
 
 	uint64_t ret = ewfd_default_padding_unit(&ewfd_rt->circ_status);
 
@@ -58,7 +70,7 @@ void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
 
 	// 暂时只支持dummy packet
 	if (op == EWFD_OP_DUMMY_PACKET) {
-		ewfd_rt->circ_status.last_dummy_ti = monotime_absolute_msec();
+		ewfd_rt->circ_status.last_padding_ti = monotime_absolute_msec();
 		// ewfd_padding_op(op, ewfd_rt->on_circ, args);
 		ewfd_rt->padding_unit_ctx.total_dummy_pkt += args;
 	}
