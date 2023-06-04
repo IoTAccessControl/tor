@@ -31,6 +31,7 @@
 void run_ewfd_schedule_vm(ewfd_padding_runtime_st *ewfd_rt) {
 	uint32_t now_ti = monotime_absolute_msec();
 	ewfd_rt->circ_status.now_ti = now_ti;
+	ewfd_rt->circ_status.cur_padding_unit = get_current_padding_unit_uuid(ewfd_rt);
 
 	// 根据flow状态，开启和切换算法
 	uint64_t ret = ewfd_default_schedule_unit(&ewfd_rt->circ_status);
@@ -38,12 +39,20 @@ void run_ewfd_schedule_vm(ewfd_padding_runtime_st *ewfd_rt) {
 	int op = (int) (ret >> 32);
 	int args = (int) (ret & 0xffffffff);
 
+	// reset next trigger ti
+	if (ewfd_rt->circ_status.next_tick != 0) {
+		ewfd_rt->schedule_unit_ctx.next_tick = ewfd_rt->circ_status.next_tick;
+	} else {
+		int slot = ewfd_rt->schedule_unit_ctx.active_slot;
+		ewfd_rt->schedule_unit_ctx.next_tick = ewfd_rt->schedule_slots[slot]->conf->tick_interval;
+	}
+
 	if (op == EWFD_SCHEDULE_RESET_UNIT) {
 		uint8_t unit_uuid = (uint8_t) args >> 8;
 		uint8_t state = (uint8_t) args & 0xff;
 
 		ewfd_schedule_op(ewfd_rt->on_circ, EWFD_SCHEDULE_RESET_UNIT, unit_uuid, &state);
-		EWFD_LOG("[schedule-unit] reset unit: %d, state: %d", unit_uuid, state);
+		// EWFD_LOG("[schedule-unit] reset unit: %d, state: %d", unit_uuid, state);
 	}
 }
 
@@ -59,6 +68,7 @@ void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
 
 	uint64_t ret = ewfd_default_padding_unit(&ewfd_rt->circ_status);
 
+	uint32_t now_ti = monotime_absolute_msec();
 	int op = (int) (ret >> 32);
 	int args = (int) (ret & 0xffffffff);
 	if (ewfd_rt->circ_status.next_tick != 0) {
@@ -70,7 +80,7 @@ void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
 
 	// 暂时只支持dummy packet
 	if (op == EWFD_OP_DUMMY_PACKET) {
-		ewfd_rt->circ_status.last_padding_ti = monotime_absolute_msec();
+		ewfd_rt->circ_status.last_padding_ti = now_ti;
 		// ewfd_padding_op(op, ewfd_rt->on_circ, args);
 		ewfd_rt->padding_unit_ctx.total_dummy_pkt += args;
 	}

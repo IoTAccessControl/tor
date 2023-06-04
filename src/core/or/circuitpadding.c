@@ -2401,7 +2401,8 @@ circpad_deliver_unrecognized_cell_events(circuit_t *circ,
   if (CIRCUIT_IS_ORIGIN(circ)) {
     return;
   }
-  EWFD_LOG("Deliver a cell");
+  // EWFD_LOG("Deliver a cell"); // confirm if drop packet are inserted
+  ewfd_statistic_on_cell_event(circ, false, UNRECOGNISED_RELAY_COMMAND);
 
   if (dir == CELL_DIRECTION_OUT) {
     /* When direction is out (away from origin), then we received non-padding
@@ -2454,6 +2455,7 @@ circpad_deliver_recognized_relay_cell_events(circuit_t *circ,
     circpad_cell_event_nonpadding_received(circ);
     trigger_ewfd_units_on_circ(circ, false, true, relay_command);
   }
+  ewfd_statistic_on_cell_event(circ, false, relay_command);
 }
 
 /**
@@ -2485,6 +2487,7 @@ circpad_deliver_sent_relay_cell_events(circuit_t *circ,
     circpad_cell_event_nonpadding_sent(circ);
     trigger_ewfd_units_on_circ(circ, true, false, relay_command);
   }
+  ewfd_statistic_on_cell_event(circ, true, relay_command);
 }
 
 /**

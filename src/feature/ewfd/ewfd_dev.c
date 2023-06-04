@@ -99,7 +99,7 @@ uint64_t ewfd_default_schedule_unit(ewfd_circ_status_st *ewfd_status) {
 	uint32_t now_ti = ewfd_status->now_ti;
 	uint32_t last_ti = ewfd_status->last_cell_ti;
 
-	EWFD_LOG("schedule_unit now_ti: %u, last_ti: %u", now_ti, last_ti);
+	// EWFD_LOG("schedule_unit now_ti: %u, last_ti: %u", now_ti, last_ti);
 
 	const uint32_t max_idle_ti = 2000; // 1s
 	if (now_ti > last_ti + max_idle_ti) {
@@ -131,30 +131,31 @@ uint64_t ewfd_default_padding_unit(ewfd_circ_status_st *ewfd_status) {
 	}
 	uint64_t ret = (uint64_t) EWFD_OP_DUMMY_PACKET << 32;
 	// tor_assert(timeline_default);
-	uint32_t cur_ti = ewfd_status->now_ti;
+	uint32_t now_ti = ewfd_status->now_ti;
+	uint32_t start_ti = ewfd_status->padding_start_ti;
 	uint32_t next_ti = ring_buffer_peek(timeline_default);
 
 	if (next_ti == (uint32_t) -1) {
 		ring_buffer_reset(timeline_default);
-		ewfd_status->padding_start_ti = 0;
+		ewfd_status->padding_start_ti = now_ti;
 		return 0;
 	}
 
 	int t = 0;
-	uint32_t send_ti = cur_ti + next_ti;
+	uint32_t send_ti = start_ti + next_ti;
 
-	EWFD_LOG("[padding-unit] send-ti: %u", send_ti);
+	EWFD_LOG("[padding-unit] start-ti: %u send-ti: %u", start_ti, send_ti);
 
 	// remove out of date packet
-	while (send_ti > ewfd_status->last_padding_ti + SCHEDULE_TI) {
+	while (send_ti < now_ti) {
 		ring_buffer_dequeue(timeline_default);
-		send_ti = cur_ti + ring_buffer_peek(timeline_default);
+		send_ti = start_ti + ring_buffer_peek(timeline_default);
 	}
 
-	while (send_ti < ewfd_status->last_padding_ti + SCHEDULE_TI && t < 5) {
+	while (send_ti < now_ti + SCHEDULE_TI && t < 5) {
 		ewfd_add_dummy_packet(ewfd_status->on_circ, send_ti);
 		ring_buffer_dequeue(timeline_default);
-		send_ti = cur_ti + ring_buffer_peek(timeline_default);
+		send_ti = now_ti + ring_buffer_peek(timeline_default);
 		t++;
 	}
 	EWFD_LOG("want to add padding packet: %d %u", t, send_ti);

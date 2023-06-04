@@ -4,6 +4,7 @@
 #include "core/or/or.h"
 
 #define EWFD_DEBUG // enable debug
+// #define USE_EWFD_STATISTICS // enable state logs
 
 /*----------------------------------------------------------------------------
 * Debug Log
@@ -25,9 +26,19 @@ void ewfd_my_log_caller(const char *fn, const char *fi, int li, const char *form
 			log_fn_(LOG_LAST_LEV, LD_GENERAL, __FUNCTION__, args)
 	#endif // SHOW_LOG_FILE_PATH
 #else
-	#define EWFD_LOG(domain, args...) \
+	#define EWFD_LOG(args...) \
 		do {} while(0)
 #endif // EWFD_DEBUG
+
+/* 用于python脚本统计padding包
+*/
+#ifdef USE_EWFD_STATISTICS
+	#define EWFD_STAT_LOG(args...) \
+		log_fn_(LOG_LAST_LEV, LD_GENERAL, __FUNCTION__, args)
+#else
+	#define EWFD_STAT_LOG(args...) \
+		do {} while(0)
+#endif	// USE_EWFD_STATISTICS
 
 
 /*----------------------------------------------------------------------------
@@ -35,5 +46,11 @@ void ewfd_my_log_caller(const char *fn, const char *fi, int li, const char *form
 */
 // extern char ewfd_circuit_log[128];
 const char *ewfd_get_circuit_info(circuit_t *circ);
+
+uint32_t ewfd_get_circuit_id(circuit_t *circ);
+
+void ewfd_statistic_on_cell_event(circuit_t *circ, bool is_send, uint8_t command);
+
+const char *show_relay_command(uint8_t command);
 
 #endif

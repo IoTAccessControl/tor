@@ -17,6 +17,7 @@ typedef struct ewfd_framework_t {
 	periodic_timer_t *padding_ticker; // 当前不使用
 	periodic_timer_t *packet_ticker;  // 固定tick处理
 	uint32_t last_packet_ti; // 上一次发送dummy packet的时间
+	uint32_t all_pkt; // 总共发送的dummy packet数量
 } ewfd_framework_st;
 
 // read from local confs
@@ -26,6 +27,9 @@ extern ewfd_framework_st *ewfd_framework;
 // init ewfd padding framework
 void ewfd_framework_init(void);
 void ewfd_framework_free(void);
+
+void start_ewfd_padding_framework(void);
+void remove_remain_dummy_packets(uintptr_t on_circ);
 
 // global timer and sending queue
 extern int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti);

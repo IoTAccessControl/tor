@@ -6,8 +6,12 @@
 #include "ext/tor_queue.h"
 #include "feature/ewfd/ewfd_conf.h"
 
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
 
-#define MIN_EWFD_TICK_GAP_US 50 // 50ms
+
+#define MAX_EWFD_TICK_GAP_MS 500 // 500ms, queue最多调度500ms内的padding包
+#define MIN_EWFD_TICK_GAP_MS 50 // 50ms, queue最小调度间隔
 #define MIN_EWFD_SCHEDULE_GAP_US 500 // 500ms
 
 // eBPF code list
@@ -52,6 +56,12 @@ void ewfd_framework_init(void) {
 	// init_framework_ticker();
 }
 
+void start_ewfd_padding_framework(void) {
+	if (ewfd_framework_instance != NULL && ewfd_framework_instance->packet_ticker == NULL) {
+		init_framework_ticker();
+	}
+}
+
 void ewfd_framework_free(void) {
 	EWFD_LOG("ewfd_padding_free");
 	if (ewfd_client_conf != NULL) {
@@ -73,6 +83,8 @@ void ewfd_framework_free(void) {
 	}
 }
 
+/* 按照时间顺序来插入包
+*/
 int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti) {
 	if (ewfd_framework_instance->dummy_packet_queue == NULL) {
 		return -1;
@@ -103,8 +115,10 @@ int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti) {
 		} else {
 			TOR_SIMPLEQ_INSERT_AFTER(&queue->head, insert_here, packet, next);
 		}
+		queue->queue_len++;
 	}
-	EWFD_LOG("insert packet: %u", packet->insert_ti);
+	uint32_t gid = ewfd_get_circuit_id((circuit_t *)on_circ);
+	EWFD_LOG("[%u] insert packet: %u", gid, packet->insert_ti);
 	return 0;
 }
 
@@ -121,7 +135,7 @@ static void parser_client_conf(void) {
 	st_test->unit_uuid = 1;
 	st_test->unit_type = EWFD_UNIT_PADDING;
 	st_test->target_hopnum = 2;
-	st_test->tick_interval = MIN_EWFD_TICK_GAP_US;
+	st_test->tick_interval = MIN_EWFD_TICK_GAP_MS;
 	st_test->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
 	smartlist_add(ewfd_client_conf->client_unit_confs, st_test);
 
@@ -130,7 +144,7 @@ static void parser_client_conf(void) {
 	schedule_unit->unit_uuid = 2;
 	schedule_unit->unit_type = EWFD_UNIT_SCHEDULE;
 	schedule_unit->target_hopnum = 2;
-	schedule_unit->tick_interval = MIN_EWFD_TICK_GAP_US * 10;
+	schedule_unit->tick_interval = MIN_EWFD_SCHEDULE_GAP_US;
 	schedule_unit->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
 	smartlist_add(ewfd_client_conf->client_unit_confs, schedule_unit);
 
@@ -141,15 +155,14 @@ static void parser_client_conf(void) {
 }
 
 static void init_framework_ticker(void) {
-	if (ewfd_framework_instance == NULL) {
-		return;
-	}
-	static const struct timeval gap = {0, MIN_EWFD_TICK_GAP_US * 1000};
-	ewfd_framework_instance->padding_ticker = periodic_timer_new(tor_libevent_get_base(), &gap, 
-		on_padding_unit_tick, NULL);
+	static const struct timeval gap = {0, MIN_EWFD_TICK_GAP_MS * 1000};
+	// ewfd_framework_instance->padding_ticker = periodic_timer_new(tor_libevent_get_base(), &gap, 
+	// 	on_padding_unit_tick, NULL);
 	
 	ewfd_framework_instance->packet_ticker = periodic_timer_new(tor_libevent_get_base(), &gap, 
 		on_padding_queue_tick, NULL);
+
+	ewfd_framework_instance->last_packet_ti = monotime_absolute_msec();
 }
 
 static void free_framework_ticker(void) {
@@ -170,6 +183,7 @@ static void free_ewfd_queues(ewfd_framework_st *framework){
 		while ((packet = TOR_SIMPLEQ_FIRST(&framework->dummy_packet_queue->head)) != NULL) {
 			TOR_SIMPLEQ_REMOVE_HEAD(&framework->dummy_packet_queue->head, next);
 			tor_free(packet);
+			// framework->dummy_packet_queue->queue_len--;
 		}
 		tor_free(framework->dummy_packet_queue);
 		framework->dummy_packet_queue = NULL;
@@ -181,12 +195,7 @@ static void on_padding_unit_tick(periodic_timer_t *timer, void *data) {
 	// EWFD_LOG("on_padding_unit_tick: %d", (int)(ti / 1000));
 }
 
-
-extern bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay);
-
-static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
-	// uint64_t ti = monotime_absolute_msec();
-	// EWFD_LOG("on_padding_queue_tick: %d", (int)(ti / 1000));
+void remove_remain_dummy_packets(uintptr_t on_circ) {
 	tor_assert(ewfd_framework_instance);
 	ewfd_packet_queue_st *queue = (ewfd_packet_queue_st *) ewfd_framework_instance->dummy_packet_queue;
 	{
@@ -194,32 +203,95 @@ static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
 		int all_pkt = 0;
 
 		// remove outdated packet
-		while ((cur_pkt = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL && 
-			cur_pkt->insert_ti < ewfd_framework_instance->last_packet_ti) {
+		while ((cur_pkt = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL && cur_pkt->on_circt == on_circ) {
 			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+			tor_free(cur_pkt);
+			queue->queue_len--;
 			all_pkt++;
-			EWFD_LOG("[EWFD-Dummy] remove outdated pkt: %u %u", cur_pkt->insert_ti, ewfd_framework_instance->last_packet_ti);
+		}
+		if (all_pkt > 0) {
+			EWFD_LOG("remove_remain_dummy_packets: %d", all_pkt);
+		}
+	}
+}
+
+
+extern bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay);
+
+/* send [last_dummy, last_dummy + GAP) 区间的包
+*/
+static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
+	// uint64_t ti = monotime_absolute_msec();
+	// EWFD_LOG("on_padding_queue_tick: %d", (int)(ti / 1000));
+	tor_assert(ewfd_framework_instance);
+	ewfd_packet_queue_st *queue = (ewfd_packet_queue_st *) ewfd_framework_instance->dummy_packet_queue;
+	{
+		ewfd_dummy_packet_st *cur_pkt = NULL;
+		uint32_t cur_ti = monotime_absolute_msec();
+		int expire_pkt = 0;
+		
+		// 如果长时间没发包，last_tick会有很大误差，因此需要修正到 [cur_ti - 500mx, cur_ti) 之间
+		if ((cur_pkt = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL) {
+			ewfd_framework_instance->last_packet_ti = MIN(cur_pkt->insert_ti, cur_ti);
+			// 如果堆积的包太多直接忽略, insert_ti和cur_ti相差500ms以上，说明性能过查
+			if (ewfd_framework_instance->last_packet_ti + MIN_EWFD_TICK_GAP_MS < cur_ti) {
+				EWFD_LOG("WARNING: too many dummy packets in queue, drop these packets");
+				ewfd_framework_instance->last_packet_ti = cur_ti;
+			}
+		}
+
+		uint32_t range_start = ewfd_framework_instance->last_packet_ti;
+		uint32_t range_end = range_start + MIN_EWFD_TICK_GAP_MS;
+		uint32_t last_pkt_ti = 0;
+
+		// remove outdated packet
+		while ((cur_pkt = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL && 
+			cur_pkt->insert_ti < range_start) {
+			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+			tor_free(cur_pkt);
+			queue->queue_len--;
+
+			expire_pkt++;
+			EWFD_LOG("[EWFD-Dummy] remove outdated pkt: %u %u", cur_pkt->insert_ti, range_start);
+			// cur_pkt = TOR_(&queue->head);
 		}
 
 		int pkt_num = 0;
 		#define EWFD_OP_DUMMY_PACKET 1
-		TOR_SIMPLEQ_FOREACH(cur_pkt, &queue->head, next) {
-			if (cur_pkt->insert_ti >= ewfd_framework_instance->last_packet_ti && 
-				cur_pkt->insert_ti < ewfd_framework_instance->last_packet_ti + MIN_EWFD_TICK_GAP_US) {
-				// send dummy packet
-				ewfd_framework_instance->last_packet_ti = cur_pkt->insert_ti;
-				ewfd_padding_op(EWFD_OP_DUMMY_PACKET, (circuit_t *) cur_pkt->on_circt, 0);
-				pkt_num++;
-			} else {
+		while ((cur_pkt = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL) {
+			if (cur_pkt->insert_ti >= range_end) {
 				break;
 			}
-			all_pkt++;
+			ewfd_padding_op(EWFD_OP_DUMMY_PACKET, (circuit_t *) cur_pkt->on_circt, 0);
+			pkt_num++;
+			ewfd_framework_instance->all_pkt++;
+			last_pkt_ti = cur_pkt->insert_ti;
+
+			// remove sent packet
+			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+			tor_free(cur_pkt);
+			queue->queue_len--;
 		}
-		uint32_t cur_ti = monotime_absolute_msec();
-		uint32_t start = ewfd_framework_instance->last_packet_ti;
-		uint32_t end = ewfd_framework_instance->last_packet_ti + MIN_EWFD_TICK_GAP_US;
-		EWFD_LOG("[EWFD-Dummy] all: %d send %d packet. cur-ti: %u  send range: %u -> %u", all_pkt,
-		pkt_num, cur_ti, start, end);
+		
+		uint32_t remain = 0;
+		uint32_t expire = 0;
+		TOR_SIMPLEQ_FOREACH(cur_pkt, &queue->head, next) {
+			if (cur_pkt->insert_ti < range_end) {
+				expire++;
+			}
+			remain++;
+		}
+		if (remain > 0) {
+			EWFD_LOG("[EWFD-Dummy] remain: %u expire: %u len: %u tick: %u", 
+				remain, expire, queue->queue_len, range_start);
+		}
+
+		// (last_ti, last_ti + MIN_EWFD_TICK_GAP_MS] 区间内的包已经发送完毕
+		ewfd_framework_instance->last_packet_ti = MAX(last_pkt_ti, range_end);
+		if (expire_pkt > 0 || pkt_num > 0) {
+			EWFD_LOG("[EWFD-Dummy] all-send: %d send-in-tick: %d expire-pkt: %d. cur-ti: %u  send range: %u -> %u", 
+				ewfd_framework_instance->all_pkt, pkt_num, expire_pkt, cur_ti, range_start, range_end);
+		}
+		
 	}
-	// ewfd_framework_instance->last_packet_ti = monotime_absolute_msec();
 }

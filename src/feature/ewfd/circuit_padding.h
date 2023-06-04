@@ -33,6 +33,7 @@ enum {
 	EWFD_PEER_WORK,
 	EWFD_PEER_PAUSE,
 	EWFD_PEER_CLEAR,
+	EWFD_PEER_STATE_MAX,
 };
 
 /**
@@ -94,9 +95,9 @@ typedef struct ewfd_circ_status_t {
 typedef struct ewfd_unit_ctx_t {
 	uint8_t active_slot; // 同一时刻只能执行一种unit
 	bool is_enable;		 // timer is scheduled
-	uint32_t next_tick;  // 所有的时间单位都是ms
-	uint32_t last_tick_ti;
-	uint32_t padding_start_ti;
+	uint32_t next_tick;  // fixed gap, 所有的时间单位都是ms
+	uint32_t last_tick_ti; // abusolute time of last tick
+	uint32_t padding_start_ti; // abusoluate time
 	uint32_t total_dummy_pkt;
 	uint32_t total_delay_pkt;
 	tor_timer_t *ticker;
@@ -126,13 +127,18 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 // dispatch padding commands
 int add_ewfd_units_on_circ(circuit_t *circ);
 void free_all_ewfd_units_on_circ(circuit_t *circ);
+void on_ewfd_rt_destory(circuit_t *circ);
+
+uint8_t get_current_padding_unit_slot(ewfd_padding_runtime_st *ewfd_rt, uint8_t uuid);
+uint8_t get_current_padding_unit_uuid(ewfd_padding_runtime_st *ewfd_rt);
 
 int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin, uint8_t relay_command);
-
 
 bool ewfd_schedule_op(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args);
 
 bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay);
+
+const char *padding_state_to_str(uint8_t state);
 
 // other events
 // int on_add_ewfd_units_on_circ();
