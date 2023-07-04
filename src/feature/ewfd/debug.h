@@ -3,8 +3,8 @@
 
 #include "core/or/or.h"
 
-#define EWFD_DEBUG // enable debug
-// #define USE_EWFD_STATISTICS // enable state logs
+// #define EWFD_DEBUG // enable debug
+#define USE_EWFD_STATISTICS // enable state logs
 
 /*----------------------------------------------------------------------------
 * Debug Log
