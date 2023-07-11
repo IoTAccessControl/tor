@@ -72,7 +72,7 @@ const char *show_relay_command(uint8_t command) {
 void ewfd_statistic_on_cell_event(circuit_t *circ, bool is_send, uint8_t command) {
 	bool is_edge = CIRCUIT_IS_ORIGIN(circ);
 	if (is_send) {
-
+		
 	} else { // receive
 		if (is_edge && (command == RELAY_COMMAND_BEGIN 
 			|| command == RELAY_COMMAND_DATA
