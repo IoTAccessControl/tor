@@ -1,4 +1,5 @@
 #include "feature/ewfd/circuit_padding.h"
+#include "feature/ewfd/ewfd_unit.h"
 #include "feature/ewfd/utils.h"
 #include "feature/ewfd/debug.h"
 #include "feature/ewfd/ewfd_rt.h"
@@ -154,8 +155,8 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 	// TODO: reload逻辑，先删除旧的unit
 
 	// 初始化所有的padding machine
-	smartlist_t* client_unit_confs = ewfd_client_conf->client_unit_confs;
-	SMARTLIST_FOREACH_BEGIN(client_unit_confs, ewfd_padding_conf_st *, conf) {
+	smartlist_t* unit_confs = ewfd_client_conf->client_unit_confs;
+	SMARTLIST_FOREACH_BEGIN(unit_confs, ewfd_padding_conf_st *, conf) {
 		if (!(conf->initial_hop & current_role)) {
 			continue;
 		}
@@ -497,6 +498,7 @@ static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_conf_st *conf, u
 	ewfd_padding_unit_st *unit = tor_malloc_zero(sizeof(ewfd_padding_unit_st));
 	unit->conf = conf;
 	unit->unit_version = unit_version;
+	unit->ewfd_unit = init_ewfd_unit(conf);
 	padding_units_num++;
 	return unit;
 }

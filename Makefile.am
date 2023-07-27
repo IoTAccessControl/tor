@@ -46,6 +46,7 @@ TOR_UTIL_LIBS = \
 	src/lib/libtor-dispatch.a \
 	src/lib/libtor-time.a \
 	src/lib/libtor-fs.a \
+	src/lib/libtor-ebpf.a \
 	src/lib/libtor-encoding.a \
 	src/lib/libtor-sandbox.a \
 	src/lib/libtor-container.a \

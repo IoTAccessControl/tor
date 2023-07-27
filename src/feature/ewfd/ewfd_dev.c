@@ -72,6 +72,7 @@ static void ring_buffer_reset(ring_buffer_st *rb) {
 
 /** Default unit handler for dev
 */
+const uint32_t SCHEDULE_TI = 200; // 200ms一次调用
 
 ring_buffer_st *timeline_default = NULL;
 
@@ -90,42 +91,18 @@ static int front_timeline[] = {
 
 extern int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti);
 
-/*
-*/
-uint64_t ewfd_default_schedule_unit(ewfd_circ_status_st *ewfd_status) {
-	uint64_t ret = 0;
-
-	// 如果超过一定时间没有发包就关闭padding unit
-	uint32_t now_ti = ewfd_status->now_ti;
-	uint32_t last_ti = ewfd_status->last_cell_ti;
-
-	// EWFD_LOG("schedule_unit now_ti: %u, last_ti: %u", now_ti, last_ti);
-
-	const uint32_t max_idle_ti = 2000; // 1s
-	if (now_ti > last_ti + max_idle_ti) {
-		uint32_t args = (ewfd_status->cur_padding_unit << 16) | EWFD_PEER_PAUSE;
-		return (uint64_t) EWFD_SCHEDULE_RESET_UNIT << 32 | args;
-	}
-
-	return ret;
-}
-
-uint64_t ewfd_default_init_unit(void) {
-	// init current padding unit
+static void dev_front_init() {
 	timeline_default = create_ring_buffer(sizeof(front_timeline) / sizeof(int) + 1);
 	int pkt = 5;
 	pkt = sizeof(front_timeline) / sizeof(int);
 	for(int i = 0; i < pkt; i++) {
 		ring_buffer_enqueue(timeline_default, front_timeline[i]);
 	}
-	return 0;
 }
-
-const uint32_t SCHEDULE_TI = 200; // 200ms一次调用
 
 /** 完整的用C实现front算法
 */
-uint64_t ewfd_default_padding_unit(ewfd_circ_status_st *ewfd_status) {
+static uint64_t dev_front_on_tick(ewfd_circ_status_st *ewfd_status) {
 	if (timeline_default == NULL) {
 		ewfd_default_init_unit();
 	}
@@ -160,4 +137,35 @@ uint64_t ewfd_default_padding_unit(ewfd_circ_status_st *ewfd_status) {
 	}
 	EWFD_LOG("want to add padding packet: %d %u", t, send_ti);
 	return ret | t;
+}
+
+/*
+*/
+uint64_t ewfd_default_schedule_unit(ewfd_circ_status_st *ewfd_status) {
+	uint64_t ret = 0;
+
+	// 如果超过一定时间没有发包就关闭padding unit
+	uint32_t now_ti = ewfd_status->now_ti;
+	uint32_t last_ti = ewfd_status->last_cell_ti;
+
+	// EWFD_LOG("schedule_unit now_ti: %u, last_ti: %u", now_ti, last_ti);
+
+	const uint32_t max_idle_ti = 2000; // 1s
+	if (now_ti > last_ti + max_idle_ti) {
+		uint32_t args = (ewfd_status->cur_padding_unit << 16) | EWFD_PEER_PAUSE;
+		return (uint64_t) EWFD_SCHEDULE_RESET_UNIT << 32 | args;
+	}
+
+	return ret;
+}
+
+uint64_t ewfd_default_init_unit(void) {
+	// init current padding unit
+	dev_front_init();
+	return 0;
+}
+
+
+uint64_t ewfd_default_padding_unit(ewfd_circ_status_st *ewfd_status) {
+	return dev_front_on_tick(ewfd_status);
 }

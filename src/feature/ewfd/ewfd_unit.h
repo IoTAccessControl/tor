@@ -1,8 +1,8 @@
 #ifndef ewfd_unit_H_
 #define ewfd_unit_H_
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /** 封装libebpf vm
 模仿BPF_PROG_TYPE_SYSCALL类型，用eBPF加载eBPF。
@@ -41,9 +41,11 @@ typedef struct ewfd_unit_t {
 	ewfd_map_fdtable_st map_table;
 } ewfd_unit_st;
 
-ewfd_unit_st* init_ewfd_unit(void);
-bool ewfd_unit_set_code(ewfd_code_st *ewfd_code);
+struct ewfd_padding_conf_t;
+
+ewfd_unit_st *init_ewfd_unit(struct ewfd_padding_conf_t *conf);
+// bool ewfd_unit_set_code(ewfd_code_st *ewfd_code);
 void free_ewfd_unit(ewfd_unit_st *ewfd_unit);
-uint64_t run_ewfd_unit(ewfd_unit_st *ewfd_unit, void *ewfd_ctx);
+uint64_t run_ewfd_unit(ewfd_unit_st *ewfd_unit, void *ewfd_ctx, int len);
 
 #endif // ewfd_unit_H_
