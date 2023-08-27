@@ -9,11 +9,6 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
-
-#define MAX_EWFD_TICK_GAP_MS 500 // 500ms, queue最多调度500ms内的padding包
-#define MIN_EWFD_TICK_GAP_MS 50 // 50ms, queue最小调度间隔
-#define MIN_EWFD_SCHEDULE_GAP_US 500 // 500ms
-
 // eBPF code list
 ewfd_client_conf_st *ewfd_client_conf = NULL;
 ewfd_framework_st *ewfd_framework_instance = NULL;
@@ -46,6 +41,8 @@ static void on_padding_queue_tick(periodic_timer_t *timer, void *data);
 void ewfd_framework_init(void) {
 	EWFD_LOG("ewfd_padding_init");
 
+	init_ewfd_code_cache();
+
 	ewfd_framework_instance = (ewfd_framework_st *) tor_malloc_zero(sizeof(ewfd_framework_st));
 	
 	// init packet queue
@@ -63,6 +60,7 @@ void start_ewfd_padding_framework(void) {
 }
 
 void ewfd_framework_free(void) {
+
 	EWFD_LOG("ewfd_padding_free");
 	if (ewfd_client_conf != NULL) {
 		if (ewfd_client_conf->client_unit_confs != NULL) {
@@ -81,6 +79,8 @@ void ewfd_framework_free(void) {
 		// free_framework_ticker();
 		tor_free(ewfd_framework_instance);
 	}
+
+	free_ewfd_code_cache();
 }
 
 /* 按照时间顺序来插入包
@@ -131,21 +131,13 @@ static void parser_client_conf(void) {
 	}
 	/* schedule unit和padding unit的uuid不能重复
 	*/
-	ewfd_padding_conf_st *st_test = tor_malloc_zero(sizeof(ewfd_padding_conf_st));
-	st_test->unit_uuid = 1;
-	st_test->unit_type = EWFD_UNIT_PADDING;
-	st_test->target_hopnum = 2;
-	st_test->tick_interval = MIN_EWFD_TICK_GAP_MS;
-	st_test->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
-	smartlist_add(ewfd_client_conf->client_unit_confs, st_test);
+	ewfd_padding_conf_st *padding_unit = demo_get_front_padding_unit_conf();
+	ewfd_padding_conf_st *schedule_unit = demo_get_front_schedule_unit_conf();
 
-	// schedule unit
-	ewfd_padding_conf_st *schedule_unit = tor_malloc_zero(sizeof(ewfd_framework_st));
-	schedule_unit->unit_uuid = 2;
-	schedule_unit->unit_type = EWFD_UNIT_SCHEDULE;
-	schedule_unit->target_hopnum = 2;
-	schedule_unit->tick_interval = MIN_EWFD_SCHEDULE_GAP_US;
-	schedule_unit->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
+	tor_assert(padding_unit);
+	tor_assert(schedule_unit);
+
+	smartlist_add(ewfd_client_conf->client_unit_confs, padding_unit);
 	smartlist_add(ewfd_client_conf->client_unit_confs, schedule_unit);
 
 	ewfd_client_conf->active_schedule_slot = 0;

@@ -2,50 +2,32 @@
 #define ewfd_unit_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
-/** 封装libebpf vm
-模仿BPF_PROG_TYPE_SYSCALL类型，用eBPF加载eBPF。
-https://elixir.bootlin.com/linux/latest/source/tools/lib/bpf/skel_internal.h#L331
-1. map create 类型
-*/
+enum EWFD_CODE_TYPE {
+	EWFD_CODE_TYPE_INIT, // init maps
+	EWFD_CODE_TYPE_MAIN, // run tick/schedule
+};
 
+#define MAX_EBPF_CODE 2048
+
+/*
+TODO: code cache
+*/
 typedef struct ewfd_code_t {
 	int code_type;
 	int code_len;
-	uint64_t code[0];
+	char name[32];
+	uint64_t code[MAX_EBPF_CODE];
 } ewfd_code_st;
 
-/** ewfd ringbuffer & map
-模仿linux fd设计：
-
-*/
-typedef struct ewfd_map_t {
-	uint8_t map_type;
-} ewfd_map_st;
-
-typedef struct ewfd_map_fdtable_t {
-	uint32_t max_fds;
-	ewfd_map_st **fd_table;
-} ewfd_map_fdtable_st;
-
-/**
-ewfd-unit绑定多个ebpf-vm，
-- init, create map
-- run,
-*/
-typedef struct ewfd_unit_t {
-	void *ebpf_vm;
-	int times;
-	uint32_t total_ti;
-	ewfd_map_fdtable_st map_table;
-} ewfd_unit_st;
-
+struct ewfd_unit_t;
 struct ewfd_padding_conf_t;
 
-ewfd_unit_st *init_ewfd_unit(struct ewfd_padding_conf_t *conf);
+struct ewfd_unit_t *init_ewfd_unit(struct ewfd_padding_conf_t *conf);
 // bool ewfd_unit_set_code(ewfd_code_st *ewfd_code);
-void free_ewfd_unit(ewfd_unit_st *ewfd_unit);
-uint64_t run_ewfd_unit(ewfd_unit_st *ewfd_unit, void *ewfd_ctx, int len);
+void free_ewfd_unit(struct ewfd_unit_t *ewfd_unit);
+uint64_t run_ewfd_unit(struct ewfd_unit_t *ewfd_unit, void *ewfd_ctx, size_t len);
 
 #endif // ewfd_unit_H_

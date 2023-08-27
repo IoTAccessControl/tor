@@ -1,5 +1,7 @@
 # 
 
+defense_name = ""
+
 data_source = """
 """
 

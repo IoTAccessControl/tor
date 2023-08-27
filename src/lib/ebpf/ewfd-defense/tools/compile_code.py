@@ -11,30 +11,20 @@ import struct
 ebpf code compiling tool, run in linux (or windows) python3.
 clang (>= 3.7) is requried.
 """
-
 CODE_TEMPLATE = """
-#ifndef EBPF_CODE_H_
-#define EBPF_CODE_H_
-
 const unsigned char ebpf_code[] = ""
 BYTE_CODE
 "";
 
-#endif
 """
 
 CODE_FILE = "ebpf_code.h"
 CODEO = "code.o"
 OUTPUT = None # "prog.bin"
 
-def save_byte_code(byte_code):
-	out_path = CODE_FILE
-	# unsigned char str
+
+def bytecode_to_str(byte_code):
 	uc_str = "".join('\\x{:02x}'.format(c) for c in byte_code)
-	# padding = 8 - (len(uc_str) % 8)
-	# uc_str += "".join('\\x00' * padding)
-	# print("padding", padding, "total", len(uc_str))
-	# print(byte_code, uc_str)
 	print("code bytes: ", len(byte_code), len(uc_str));
 	code_lines = []
 	pos, li_sz = 0, 100
@@ -42,39 +32,50 @@ def save_byte_code(byte_code):
 		code_lines.append('"{}"'.format(uc_str[pos:pos+li_sz]))
 		pos += li_sz
 	fmt_str = "\n".join(code_lines)
-	code = CODE_TEMPLATE.replace("BYTE_CODE", fmt_str)
+	return fmt_str
+
+def print_disasm(byte_code):
+	print("disassemble: ")
+	data = ubpf.disassembler.disassemble(byte_code)
+	for pc, li in enumerate(data.split("\n")):
+		if li:
+			print(pc, li)
+		# print(li)
+	print("")
+
+def save_bpf_sec(sec, byte_code):
+	out_path = CODE_FILE
+	fmt_str = bytecode_to_str(byte_code)
+
+	sec_name = sec.replace(".", "_").replace("/", "_")
+	code = CODE_TEMPLATE.replace("ebpf_code", sec_name)
+	code = code.replace("BYTE_CODE", fmt_str)
 	print("save byte code to", out_path)
-	print(fmt_str)
-	with open(out_path, "w") as fp:
+	with open(out_path, "a") as fp:
 		fp.write(code)
+	print_disasm(byte_code)
 
 def bytes_to_str_escape(bys):
 	return "".join('\\x{:02x}'.format(c) for c in bys)
 
 def dump_elf_text(prog):
+	# clear output
+	with open(CODE_FILE, "w") as fp:
+		fp.write("")
+
 	# 从clang编译的二进制中导出prog
 	with open(prog, "rb") as fp:
 		elf = ELFFile(fp)
-		# for section in elf.iter_sections():
-		# 	print(hex(section['sh_addr']), section.name)
+		for section in elf.iter_sections():
+			sec_name = section.name.replace('"', "")
+			if sec_name and sec_name.startswith("ewfd"):
+				print(hex(section['sh_addr']), section.name)
+				save_bpf_sec(sec_name, section.data())
+
 		code = elf.get_section_by_name('.text')
 		ops = code.data()
-		# print("binary code:", bytes_to_str_escape(ops))
-		# addr = code['sh_addr']
-		# md = Cs(CS_ARCH_X86, CS_MODE_64)
-		# for i in md.disasm(ops, addr):        
-		# 	print(f'0x{i.address:x}:\t{i.mnemonic}\t{i.op_str}')
-		write_binary(ops)
-
-def write_binary(ops):
-	save_byte_code(ops)
-	if OUTPUT:
-		with open(OUTPUT, "wb") as fp:
-			fp.write(ops)
-	print("disassemble: ")
-	data = ubpf.disassembler.disassemble(ops)
-	for pc, li in enumerate(data.split("\n")):
-		print(pc, li)
+		if ops:
+			save_bpf_sec("default", ops)
 
 def compile_code(src):
 	cmd = f"clang -O2 -emit-llvm -c {src} -o - | llc -march=bpf -filetype=obj -o code.o"
@@ -91,7 +92,7 @@ def assemble_to_bytecode(asm):
 	exec_command(cmd)
 	with open("code.o", "rb") as fp:
 		code = fp.read()
-	write_binary(code)
+	save_bpf_sec("default", ops)
 
 def exec_command(cmd, cwd=os.getcwd()):
 	print(f"Run cmd '{cmd}' in '{cwd}'")

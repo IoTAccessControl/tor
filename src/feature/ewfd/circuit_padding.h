@@ -45,9 +45,12 @@ typedef struct ewfd_padding_conf_t {
 	uint8_t initial_hop; // bit3, [Exit][OR][Client]
 	uint8_t target_hopnum;
 	uint32_t tick_interval;  // ms for tick gap, 10-6 second, 
+	bool use_jit;
 	ewfd_code_st *init_code; // init map/timeline
 	ewfd_code_st *main_code; // logic
 } ewfd_padding_conf_st;
+
+struct ewfd_unit_t;
 
 /** 将conf，脚本绑定到一个vm上
 */
@@ -62,6 +65,7 @@ typedef struct ewfd_padding_unit_t {
 /** 传递到eBPF vm的参数，一块连续的内存
 */
 typedef struct ewfd_circ_status_t {
+	uint64_t ewfd_unit;
 	// __IN
 	// uint32_t last_delay_ti;
 	uint32_t padding_start_ti; // first padding init time
