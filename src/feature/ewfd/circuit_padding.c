@@ -505,6 +505,7 @@ static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_conf_st *conf, u
 
 static void free_ewfd_padding_unit(ewfd_padding_unit_st *unit) {
 	padding_units_num--;
+	free_ewfd_unit(unit->ewfd_unit);
 	tor_free(unit);
 }
 

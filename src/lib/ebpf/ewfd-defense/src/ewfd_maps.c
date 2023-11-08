@@ -16,6 +16,7 @@
 // ring buffer
 typedef struct ewfd_array_map_t {
 	struct ewfd_map_t map;
+	uint32_t *buffer;
 } ewfd_array_map_st;
 
 typedef struct ewfd_ringbuffer_t {
@@ -43,6 +44,8 @@ ewfd_map_st* ewfd_map_create(struct ewfd_unit_t *unit, uint32_t map_idx, enum ew
 	if (map_type == EWFD_MAP_RINGBUFFER) {
 		unit->map_table.fd_table[map_idx] = (ewfd_map_st *) calloc(1, sizeof(ewfd_ringbuffer_st));
 		unit->map_table.fd_table[map_idx]->map_type = EWFD_MAP_RINGBUFFER;
+	} else if (map_type == EWFD_MAP_HASHMAP) {
+
 	}
 
 	return unit->map_table.fd_table[map_idx];
@@ -166,3 +169,9 @@ int ewfd_data_stream_dequeue(struct ewfd_unit_t *unit, uint32_t data_stream_fd) 
 	rb->size--;
 	return data;
 }
+
+
+// --------------------------------------------
+// eBPF hash map
+// --------------------------------------------
+

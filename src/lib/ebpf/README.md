@@ -17,6 +17,13 @@ ewfd防御都在这个目录，导出接口给库调用。
 - 在feature里面正式运行起来
 - 测试
 - push
+---
+8月31日
+- ebpf schedule unit
+- tor全局asan
+- ebpf hashmap
+- c wpf-pad
+- 优化读配置
 
 ### 开发进度
 
