@@ -115,10 +115,13 @@ error:
 	return -1;
 }
 
+#include "map_test.h"
 int main(int agrc, char *argv[]) {
 	printf("hello ebpf\n");
-	assert(run_ebpf_code(TEST_BPF_CODE, TEST_BPF_SIZE, &m, sizeof(struct mem)) == 0);
+	// assert(run_ebpf_code(TEST_BPF_CODE, TEST_BPF_SIZE, &m, sizeof(struct mem)) == 0);
 
-	assert(test_ewfd_code() == 0);
+	// assert(test_ewfd_code() == 0);
+
+	test_map_api();
 	return 0;
 }

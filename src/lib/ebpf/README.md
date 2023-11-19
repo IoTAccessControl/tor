@@ -20,7 +20,9 @@ ewfd防御都在这个目录，导出接口给库调用。
 ---
 8月31日
 - ebpf schedule unit
-- tor全局asan
+
+11月11日：
+- tor全局asan，configure好像无效
 - ebpf hashmap
 - c wpf-pad
 - 优化读配置
@@ -51,3 +53,6 @@ https://github.com/IoTAccessControl/libebpf.git
 开发方式，先在这里面开发，修改push回libebpf的repo。
 
 由于tor makefile不支持 -I 参数，因此直接把文件copy出来。
+
+当前使用的hashmap库：
+https://github.com/tidwall/hashmap.c/blob/master/hashmap.c
