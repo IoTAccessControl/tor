@@ -118,10 +118,23 @@ error:
 #include "map_test.h"
 int main(int agrc, char *argv[]) {
 	printf("hello ebpf\n");
-	// assert(run_ebpf_code(TEST_BPF_CODE, TEST_BPF_SIZE, &m, sizeof(struct mem)) == 0);
 
+	printf("\n/-------------------------------------------------\n");
+	printf("test basic ringbuffer ewfd extension\n");
+	printf("/-------------------------------------------------\n");
+	assert(run_ebpf_code(TEST_BPF_CODE, TEST_BPF_SIZE, &m, sizeof(struct mem)) == 0);
+	assert(test_ewfd_code() == 0);
+
+	printf("\n/-------------------------------------------------\n");
+	printf("test basic hashmap\n");
+	printf("/-------------------------------------------------\n");
+	test_basic_hashmap();
+
+	printf("\n/-------------------------------------------------\n");
+	printf("test basic hashmap ewfd extension\n");
+	printf("/-------------------------------------------------\n");
+	// assert(run_ebpf_code(TEST_BPF_CODE, TEST_BPF_SIZE, &m, sizeof(struct mem)) == 0);
 	// assert(test_ewfd_code() == 0);
 
-	test_map_api();
 	return 0;
 }

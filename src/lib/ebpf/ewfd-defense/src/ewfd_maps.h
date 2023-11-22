@@ -42,9 +42,15 @@ ewfd_map_st* ewfd_map_create(struct ewfd_unit_t *unit, uint32_t map_idx, enum ew
 ewfd_map_st* ewfd_map_get(struct ewfd_unit_t *unit, uint32_t map_idx);
 void ewfd_map_free(ewfd_map_st *map);
 
+// ringbuffer based data stream operations
 int ebpf_data_stream_init(struct ewfd_unit_t *unit, uint32_t map_idx, const char *data_stream_file);
 int ewfd_data_stream_load_more(struct ewfd_unit_t *unit, uint32_t data_stream_fd);
 uint32_t ewfd_data_stream_fetch(struct ewfd_unit_t *unit, uint32_t data_stream_fd);
 int ewfd_data_stream_dequeue(struct ewfd_unit_t *unit, uint32_t data_stream_fd);
+
+// hashmap based histogram operations
+void ewfd_histogram_init(struct ewfd_unit_t *unit, uint32_t map_idx, uint32_t key_sz, uint32_t val_sz, uint32_t max_entries);
+uint32_t ewfd_histogram_get(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index);
+int ewfd_histogram_set(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index, uint32_t token);
 
 #endif // _EWFD_MAPS_H_

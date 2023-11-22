@@ -339,7 +339,6 @@ const void *hashmap_get_with_hash(struct hashmap *map, const void *key,
         if (bucket->hash == hash) {
             void *bitem = bucket_item(bucket);
             if (!map->compare || map->compare(key, bitem, map->keysz, map->udata) == 0) {
-                printf("bitem: %p\n", bitem);
 				return bitem;
             }
         }
@@ -358,7 +357,6 @@ const void *hashmap_set_by_kv(struct hashmap *map, const void *key, const void *
 	uint8_t item[128];
 	assert(map->elsize < 128);
 	assert(map->keysz < map->elsize);
-	printf("keysz: %d, elsize: %d\n", map->keysz, map->elsize);
 	memcpy(item, key, map->keysz);
 	memcpy(item + map->keysz, val, map->elsize - map->keysz);
 	hashmap_set(map, item);

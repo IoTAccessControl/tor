@@ -69,17 +69,10 @@ static void efwd_free_hashmap(struct hashmap *map) {
 	hashmap_free(map);
 }
 
-static void test_map_api(void) {
+static void test_basic_hashmap(void) {
 	basic_test_ewfd_hashmap_api();
-	// printf("hashmap run: %d\n", sizeof(struct hist_item));
-	// int seed = time(NULL);
-	// struct hashmap *map = hashmap_new(sizeof(uint8_t), sizeof(struct hist_item), 8, seed, seed, hashmap_xxhash3, hash_cmp_int, NULL, NULL);
-	// struct hist_item it = { .index = 1, .token = 15 };
-	// hashmap_set(map, &it);
-	// uint8_t key = 1;
-	// struct hist_item *it2 = (struct hist_item *) hashmap_get(map, &key);
-	// printf("val: %d\n", it2->token);
-	// hashmap_free(map);
+	corretness_test_ewfd_hashmap_api();
+	prof_ewfd_hashmap_api();
 }
 
 /* 测试正确性
@@ -97,11 +90,77 @@ static void basic_test_ewfd_hashmap_api(void) {
 }
 
 static void corretness_test_ewfd_hashmap_api(void) {
-	
+	int map_size = 2048;
+	int *val = (int *) malloc(sizeof(int) * map_size);
+	struct hashmap *map = ewfd_create_hashmap(sizeof(int), sizeof(int) * 2, map_size);
+	for (int i = 0; i < map_size; i++) {
+		int key = i;
+		val[i] = i * i;
+		ewfd_hashmap_set(map, &key, &val[i]);
+	}
+
+	for (int i = 0; i < map_size; i++) {
+		int key = i;
+		int *it = (int *) ewfd_hashmap_lookup(map, &key);
+		int v = *(it + 1);
+		// printf("val: %d key: %d\n", v, key);
+		assert(v == key * key);
+	}
+
+	free(val);
+	efwd_free_hashmap(map);
 }
 
-static void prof_ewfd_hashmap_api(void) {
+#define BENCH_RUN_N(tag, N, code) {\
+	printf("%-14s ", tag); \
+	clock_t begin = clock(); \
+	for (int i = 0; i < N; i++) { \
+		(code); \
+	} \
+	clock_t end = clock(); \
+	double elapsed_secs = (double)(end - begin) / CLOCKS_PER_SEC; \
+	printf("%d ops in %.3f secs, %.0f ns/op, %.0f op/sec\n", \
+		N, elapsed_secs, \
+		elapsed_secs/(double)N*1e9, \
+		(double)N/elapsed_secs \
+	);}
 
+static void prof_ewfd_hashmap_api(void) {
+	int N = 10000;
+	int map_size = 2048;
+	int *val = (int *) malloc(sizeof(int) * map_size);
+	struct hashmap *map = ewfd_create_hashmap(sizeof(int), sizeof(int) * 2, map_size);
+	for (int i = 0; i < map_size; i++) {
+		int key = i;
+		val[i] = i * i;
+		ewfd_hashmap_set(map, &key, &val[i]);
+	}
+
+	BENCH_RUN_N("update", N, {
+		int key = i % map_size;
+		int val = key + 2;
+		ewfd_hashmap_set(map, &key, &val);
+	});
+
+	BENCH_RUN_N("lookup", N, {
+		int key = i % map_size;
+		int *it = (int *) ewfd_hashmap_lookup(map, &key);
+		assert(it && *(it + 1) == key  + 2);
+	});
+
+	BENCH_RUN_N("delete", N, {
+		int key = i % map_size;
+		bool res = ewfd_hashmap_delete(map, &key);
+		if (i < map_size) {
+			assert(res);
+		} else {
+			assert(!res);
+		}
+		// printf("delete i: %d res: %d\n", i, res);
+	});
+
+	free(val);
+	efwd_free_hashmap(map);
 }
 
 #endif // EWFD_MAP_TEST_H_

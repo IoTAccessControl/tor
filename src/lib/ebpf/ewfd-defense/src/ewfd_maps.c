@@ -28,6 +28,11 @@ typedef struct ewfd_ringbuffer_t {
 	int size;
 } ewfd_ringbuffer_st;
 
+typedef struct ewfd_hashmap_t {
+	struct ewfd_map_t map;
+	struct hashmap *hashmap;
+} ewfd_hashmap_st;
+
 static void _ewfd_data_stream_enqueue(ewfd_ringbuffer_st *rbuf, uint32_t data);
 
 ewfd_map_st* ewfd_map_create(struct ewfd_unit_t *unit, uint32_t map_idx, enum ewfd_map_type map_type) {
@@ -45,7 +50,10 @@ ewfd_map_st* ewfd_map_create(struct ewfd_unit_t *unit, uint32_t map_idx, enum ew
 		unit->map_table.fd_table[map_idx] = (ewfd_map_st *) calloc(1, sizeof(ewfd_ringbuffer_st));
 		unit->map_table.fd_table[map_idx]->map_type = EWFD_MAP_RINGBUFFER;
 	} else if (map_type == EWFD_MAP_HASHMAP) {
-		
+		ewfd_hashmap_st *map = (ewfd_hashmap_st *) calloc(1, sizeof(ewfd_hashmap_st));
+		map->hashmap = NULL;
+		unit->map_table.fd_table[map_idx] = (ewfd_map_st *) map;
+		unit->map_table.fd_table[map_idx]->map_type = EWFD_MAP_HASHMAP;
 	}
 
 	return unit->map_table.fd_table[map_idx];
@@ -66,9 +74,12 @@ void ewfd_map_free(ewfd_map_st *map) {
 	if (map->map_type == EWFD_MAP_RINGBUFFER) {
 		ewfd_ringbuffer_st *rbuf = (ewfd_ringbuffer_st *) map;
 		free(rbuf->buffer);
+	} else if (map->map_type == EWFD_MAP_HASHMAP) {
+		ewfd_hashmap_st *hmap = (ewfd_hashmap_st *) map;
+		hashmap_free(hmap->hashmap);
 	}
 	free(map);
-	printf("%d -> free map %p\n", __LINE__, map);
+	// printf("%d -> free map %p\n", __LINE__, map);
 }
 
 
@@ -175,4 +186,30 @@ int ewfd_data_stream_dequeue(struct ewfd_unit_t *unit, uint32_t data_stream_fd) 
 // eBPF hash map
 // https://github.com/tidwall/hashmap.c/tree/master
 // --------------------------------------------
+struct hist_item_t {
+	uint8_t key;
+	uint32_t val;
+} hist_item_st __attribute__((packed));
 
+void ewfd_histogram_init(struct ewfd_unit_t *unit, uint32_t map_idx, uint32_t key_sz, uint32_t val_sz, uint32_t max_entries) {
+	ewfd_hashmap_st *map = (ewfd_hashmap_st *) ewfd_map_get(unit, map_idx);
+	if (map == NULL) {
+		map = (ewfd_hashmap_st *) ewfd_map_create(unit, map_idx, EWFD_MAP_HASHMAP);
+	}
+	if (map->hashmap == NULL) {
+		map->hashmap = hashmap_new(key_sz, key_sz + val_sz, max_entries, 0, 0, hashmap_xxhash3, hashmap_default_compare, NULL, NULL);
+	}
+}
+
+uint32_t ewfd_histogram_get(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index) {
+	ewfd_hashmap_st *map = (ewfd_hashmap_st *) ewfd_map_get(unit, map_idx);
+	if (map == NULL) {
+		return 0;
+	}
+	hist_item_st *item = (hist_item_st *) hashmap_get(map->hashmap, &index);
+	return item == NULL ? 0 : item->val;
+}
+
+int ewfd_histogram_set(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index, uint32_t token) {
+	
+}
