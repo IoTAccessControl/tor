@@ -186,10 +186,10 @@ int ewfd_data_stream_dequeue(struct ewfd_unit_t *unit, uint32_t data_stream_fd) 
 // eBPF hash map
 // https://github.com/tidwall/hashmap.c/tree/master
 // --------------------------------------------
-struct hist_item_t {
+typedef struct hist_item_t {
 	uint8_t key;
 	uint32_t val;
-} hist_item_st __attribute__((packed));
+} __attribute__((packed)) hist_item_st;
 
 void ewfd_histogram_init(struct ewfd_unit_t *unit, uint32_t map_idx, uint32_t key_sz, uint32_t val_sz, uint32_t max_entries) {
 	ewfd_hashmap_st *map = (ewfd_hashmap_st *) ewfd_map_get(unit, map_idx);
@@ -210,6 +210,10 @@ uint32_t ewfd_histogram_get(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t 
 	return item == NULL ? 0 : item->val;
 }
 
-int ewfd_histogram_set(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index, uint32_t token) {
-	
+bool ewfd_histogram_set(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index, uint32_t token) {
+	ewfd_hashmap_st *map = (ewfd_hashmap_st *) ewfd_map_get(unit, map_idx);
+	if (map == NULL) {
+		return 0;
+	}
+	return hashmap_set_by_kv(map->hashmap, &index, &token) != NULL;
 }

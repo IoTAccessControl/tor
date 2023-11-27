@@ -24,7 +24,6 @@ build: ## build the eBPF library and all test programs
 
 bpf:
 	cd ewfd-defense && bash build.sh
-	mv ewfd-defense/ebpf_code.h ewfd-defense/src/front_code.h
 
 run: bpf build ## run the test program
 	./build/bin/test

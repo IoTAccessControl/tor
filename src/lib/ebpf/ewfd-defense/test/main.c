@@ -65,14 +65,20 @@ int test_ewfd_code(void) {
 	int tick = 0;
 	
 	// init
-	res = ewfd_init_front_unit(ctx, &status, sizeof(status));
+	// res = ewfd_init_front_unit(ctx, &status, sizeof(status));
+	// assert(res == 0);
+
+	res = ewfd_init_wpfpad_unit(ctx, &status, sizeof(status));
 	assert(res == 0);
 
 	while (tick < 1000) {
 		printf("tick: %d\n", tick);
 
 		// run tick
-		res = ewfd_run_front_unit(ctx, &status, sizeof(status));
+		// res = ewfd_run_front_unit(ctx, &status, sizeof(status));
+		// assert(res == 0);
+
+		res = ewfd_run_wpfpad_unit(ctx, &status, sizeof(status));
 		assert(res == 0);
 
 		tick++;
@@ -129,12 +135,6 @@ int main(int agrc, char *argv[]) {
 	printf("test basic hashmap\n");
 	printf("/-------------------------------------------------\n");
 	test_basic_hashmap();
-
-	printf("\n/-------------------------------------------------\n");
-	printf("test basic hashmap ewfd extension\n");
-	printf("/-------------------------------------------------\n");
-	// assert(run_ebpf_code(TEST_BPF_CODE, TEST_BPF_SIZE, &m, sizeof(struct mem)) == 0);
-	// assert(test_ewfd_code() == 0);
 
 	return 0;
 }

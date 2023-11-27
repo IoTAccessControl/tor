@@ -13,5 +13,7 @@ int ewfd_init_front_unit(struct ewfd_unit_t *unit, void *status, size_t status_l
 int ewfd_run_front_unit(struct ewfd_unit_t *unit, void *status, size_t status_len);
 
 // load front default code
+int ewfd_init_wpfpad_unit(struct ewfd_unit_t *unit, void *status, size_t status_len);
+int ewfd_run_wpfpad_unit(struct ewfd_unit_t *unit, void *status, size_t status_len);
 
 #endif /* _EWFD_TEST_H_ */

@@ -67,7 +67,7 @@ def dump_elf_text(prog):
 	with open(prog, "rb") as fp:
 		elf = ELFFile(fp)
 		for section in elf.iter_sections():
-			sec_name = section.name.replace('"', "")
+			sec_name = section.name.replace('"', "").replace("-", "_")
 			if sec_name and sec_name.startswith("ewfd"):
 				print(hex(section['sh_addr']), section.name)
 				save_bpf_sec(sec_name, section.data())

@@ -2,6 +2,7 @@
 #define _EWFD_MAPS_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /*
 ewfd maps:
@@ -51,6 +52,6 @@ int ewfd_data_stream_dequeue(struct ewfd_unit_t *unit, uint32_t data_stream_fd);
 // hashmap based histogram operations
 void ewfd_histogram_init(struct ewfd_unit_t *unit, uint32_t map_idx, uint32_t key_sz, uint32_t val_sz, uint32_t max_entries);
 uint32_t ewfd_histogram_get(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index);
-int ewfd_histogram_set(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index, uint32_t token);
+bool ewfd_histogram_set(struct ewfd_unit_t *unit, uint32_t map_idx, uint8_t index, uint32_t token);
 
 #endif // _EWFD_MAPS_H_

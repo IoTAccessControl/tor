@@ -44,6 +44,11 @@ core.*
 # ccls file that can be per directory.
 *.ccls
 
+# my files
+# clangd cache
+.cache/
+install
+
 # /
 /Makefile
 /Makefile.in

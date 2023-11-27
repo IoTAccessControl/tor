@@ -359,7 +359,7 @@ const void *hashmap_set_by_kv(struct hashmap *map, const void *key, const void *
 	assert(map->keysz < map->elsize);
 	memcpy(item, key, map->keysz);
 	memcpy(item + map->keysz, val, map->elsize - map->keysz);
-	hashmap_set(map, item);
+	return hashmap_set(map, item);
 }
 
 // hashmap_probe returns the item in the bucket at position or NULL if an item

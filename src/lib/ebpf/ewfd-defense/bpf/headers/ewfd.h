@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdint.h>
-
+#include <stdbool.h>
 
 #define SEC(name) __attribute__((section(# name)))
 
@@ -50,3 +50,8 @@ static int (*ebpf_init_data_stream)(uint64_t ewfd_unit, int map_idx, const char 
 static int (*ewfd_data_stream_load_more)(uint64_t ewfd_unit, uint32_t data_stream_fd) = (void *) 12;
 static uint32_t (*ewfd_data_stream_fetch)(uint64_t ewfd_unit, uint32_t data_stream_fd) = (void *) 13;
 static int (*ewfd_data_stream_dequeue)(uint64_t ewfd_unit, uint32_t data_stream_fd) = (void *) 14;
+
+// helpers for histgram
+static void (*ewfd_histogram_init)(uint64_t ewfd_unit, uint32_t map_idx, uint32_t key_sz, uint32_t val_sz, uint32_t max_entries) = (void *) 21;
+static uint32_t (*ewfd_histogram_get)(uint64_t ewfd_unit, uint32_t map_idx, uint8_t index) = (void *) 22;
+static bool (*ewfd_histogram_set)(uint64_t ewfd_unit, uint32_t map_idx, uint8_t index, uint32_t token) = (void *) 23;
