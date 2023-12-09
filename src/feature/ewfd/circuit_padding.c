@@ -23,6 +23,7 @@
 #include "lib/defs/time.h"
 #include "feature/stats/rephist.h"
 
+#include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -197,6 +198,8 @@ void free_all_ewfd_units_on_circ(circuit_t *circ) {
 	int all_num = 0;
 	int remain_padding = 0;
 	if (circ->ewfd_padding_rt != NULL) {
+		on_ewfd_rt_destory(circ);
+
 		all_num = circ->ewfd_padding_rt->units_cnt;
 
 		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
@@ -225,9 +228,6 @@ void free_all_ewfd_units_on_circ(circuit_t *circ) {
 		EWFD_LOG("Step-n: Free %d/%d eWFD units on circ: %d remain: %d", free_num, 
 			all_num, cid, remain_padding);
 	}
-	if (circ->ewfd_padding_rt != NULL) {
-		on_ewfd_rt_destory(circ);
-	}
 }
 
 // remove packet on queue
@@ -235,6 +235,7 @@ void on_ewfd_rt_destory(circuit_t *circ) {
 	uint32_t gid = ewfd_get_circuit_id(circ);
 	EWFD_LOG("----------------------------------on_ewfd_rt_destory: %u", gid);
 	remove_remain_dummy_packets((uintptr_t) circ);
+	circ->ewfd_padding_rt->on_circ = NULL;
 }
 
 /** STEP-2: OR handle padding negotiate

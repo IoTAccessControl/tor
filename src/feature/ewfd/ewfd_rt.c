@@ -6,6 +6,7 @@
 #include "lib/ebpf/ebpf_vm.h"
 #include "lib/ebpf/ewfd-defense/src/ewfd_api.h"
 
+#include <assert.h>
 #include <stdint.h>
 #include <math.h>
 #include <stdlib.h>
@@ -59,6 +60,7 @@ void run_ewfd_schedule_vm(ewfd_padding_runtime_st *ewfd_rt) {
 		ewfd_rt->schedule_unit_ctx.next_tick = ewfd_rt->circ_status.next_tick;
 	} else {
 		int slot = ewfd_rt->schedule_unit_ctx.active_slot;
+		assert(ewfd_rt->schedule_slots[slot] && ewfd_rt->schedule_slots[slot]->conf);
 		ewfd_rt->schedule_unit_ctx.next_tick = ewfd_rt->schedule_slots[slot]->conf->tick_interval;
 	}
 

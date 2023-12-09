@@ -3,8 +3,11 @@
 #include "feature/ewfd/utils.h"
 #include "feature/ewfd/circuit_padding.h"
 #include "lib/log/util_bug.h"
+#include "core/or/or.h"
 #include "ext/tor_queue.h"
 #include "feature/ewfd/ewfd_conf.h"
+#include "core/or/or_circuit_st.h"
+#include "core/or/origin_circuit_st.h"
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
@@ -239,12 +242,12 @@ static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
 		// remove outdated packet
 		while ((cur_pkt = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL && 
 			cur_pkt->insert_ti < range_start) {
+			EWFD_LOG("[EWFD-Dummy] remove outdated pkt: %u %u", cur_pkt->insert_ti, range_start);
+			
 			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
 			tor_free(cur_pkt);
 			queue->queue_len--;
-
 			expire_pkt++;
-			EWFD_LOG("[EWFD-Dummy] remove outdated pkt: %u %u", cur_pkt->insert_ti, range_start);
 			// cur_pkt = TOR_(&queue->head);
 		}
 
@@ -254,10 +257,13 @@ static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
 			if (cur_pkt->insert_ti >= range_end) {
 				break;
 			}
-			ewfd_padding_op(EWFD_OP_DUMMY_PACKET, (circuit_t *) cur_pkt->on_circt, 0);
-			pkt_num++;
-			ewfd_framework_instance->all_pkt++;
-			last_pkt_ti = cur_pkt->insert_ti;
+			circuit_t * cur_circ = (circuit_t *) cur_pkt->on_circt;
+			if (cur_circ && cur_circ->ewfd_padding_rt) {
+				ewfd_padding_op(EWFD_OP_DUMMY_PACKET, (circuit_t *) cur_pkt->on_circt, 0);
+				pkt_num++;
+				ewfd_framework_instance->all_pkt++;
+				last_pkt_ti = cur_pkt->insert_ti;
+			}
 
 			// remove sent packet
 			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);

@@ -19,7 +19,7 @@ struct ewfd_unit_t *ewfd_unit_new(void) {
 }
 
 void ewfd_unit_clear(struct ewfd_unit_t *ctx) {
-	printf("ewfd clear units----------------\n");
+	// printf("ewfd clear units----------------\n");
 	// clear maps
 	if (ctx->map_table.fd_table != NULL) {
 		for (uint32_t i = 0; i < ctx->map_table.max_fds; i++) {

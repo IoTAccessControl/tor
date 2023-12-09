@@ -43,7 +43,7 @@ uint64_t ewfd_tick(struct ewfd_circ_status_t *ewfd_status) {
 	int t = 0;
 	uint32_t send_ti = start_ti + next_ti;
 
-	log_print("[padding-unit] start-ti: %u send-ti: %u\n", start_ti, send_ti);
+	log_print("[padding-unit] start-ti: %u send-ti: %u", start_ti, send_ti);
 
 	// remove out of date packet
 	while (send_ti < now_ti) {

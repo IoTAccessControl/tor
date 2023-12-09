@@ -6,6 +6,7 @@ src_lib_libtor_ebpf_a_SOURCES = \
 	src/lib/ebpf/ebpf_jit_x86_64.c \
 	src/lib/ebpf/ewfd-defense/src/ewfd_api.c \
 	src/lib/ebpf/ewfd-defense/src/ewfd_helper.c \
+	src/lib/ebpf/ewfd-defense/src/hashmap.c \
 	src/lib/ebpf/ewfd-defense/src/ewfd_maps.c
 
 noinst_HEADERS += \
@@ -13,4 +14,5 @@ noinst_HEADERS += \
 	src/lib/ebpf/ebpf_vm.h \
 	src/lib/ebpf/ebpf_jit_x86_64.h \
 	src/lib/ebpf/libebpf.h \
+	src/lib/ebpf/ewfd-defense/src/hashmap.h \
 	src/lib/ebpf/ewfd-defense/src/ewfd_api.h 

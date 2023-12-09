@@ -85,7 +85,6 @@ ewfd_padding_conf_st* demo_get_front_schedule_unit_conf(void) {
 	schedule_unit->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
 	schedule_unit->init_code = NULL;
 	schedule_unit->main_code = front_schedule;
-	smartlist_add(ewfd_client_conf->client_unit_confs, schedule_unit);
 
 	return schedule_unit;
 }
