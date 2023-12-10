@@ -36,7 +36,6 @@ void ewfd_unit_clear(struct ewfd_unit_t *ctx) {
 	if (ctx->vm != NULL) {
 		ebpf_destroy(ctx->vm);
 	}
-	free(ctx);
 }
 
 

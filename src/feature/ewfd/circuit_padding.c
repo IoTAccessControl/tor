@@ -26,6 +26,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 
@@ -64,11 +65,12 @@ const char *ewfd_peer_state_str[] = {
 static int remain_padding_ticker = 0;
 
 static void ewfd_init_runtime(circuit_t *circ);
+static int ewfd_release_runtime(circuit_t *circ);
 
 // padding unit的内存由circ管理，在circ关闭时一起关
 static int padding_units_num = 0;
-static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_conf_st *conf, uint32_t unit_version);
-static void free_ewfd_padding_unit(ewfd_padding_unit_st *unit);
+static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_conf_st *conf);
+static void free_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_unit_st *unit);
 static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid, bool replace);
 static ewfd_padding_unit_st* ewfd_get_unit_on_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid);
 static bool ewfd_active_unit_by_uuid(ewfd_padding_runtime_st *ewfd_rt, uint8_t unit_uuid);
@@ -180,7 +182,7 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 	} SMARTLIST_FOREACH_END(conf);
 
 	// no padding units added
-	if (circ->ewfd_padding_rt->units_cnt == 0) {
+	if (circ->ewfd_padding_rt->last_unit_idx == 0) {
 		EWFD_LOG("WARNING: No padding units added on circ: %u", on_circ->global_identifier);
 		return -1;
 	}
@@ -198,31 +200,9 @@ void free_all_ewfd_units_on_circ(circuit_t *circ) {
 	int all_num = 0;
 	int remain_padding = 0;
 	if (circ->ewfd_padding_rt != NULL) {
-		on_ewfd_rt_destory(circ);
-
-		all_num = circ->ewfd_padding_rt->units_cnt;
-
-		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
-			if (circ->ewfd_padding_rt->schedule_slots[i] != NULL) {
-				free_ewfd_padding_unit(circ->ewfd_padding_rt->schedule_slots[i]);
-				circ->ewfd_padding_rt->schedule_slots[i] = NULL;
-				free_num++;
-			}
-		}
-		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
-			if (circ->ewfd_padding_rt->padding_slots[i] != NULL) {
-				free_ewfd_padding_unit(circ->ewfd_padding_rt->padding_slots[i]);
-				circ->ewfd_padding_rt->padding_slots[i] = NULL;
-				free_num++;
-			}
-		}
-
-		// free timer
-		timer_free(circ->ewfd_padding_rt->padding_unit_ctx.ticker);
-		timer_free(circ->ewfd_padding_rt->schedule_unit_ctx.ticker);
-
-		remain_padding = circ->ewfd_padding_rt->units_cnt - free_num;
-		tor_free(circ->ewfd_padding_rt);
+		all_num = circ->ewfd_padding_rt->last_unit_idx;
+		remain_padding = circ->ewfd_padding_rt->last_unit_idx - free_num;
+		free_num = ewfd_release_runtime(circ);
 	}
 	if (free_num > 0) {
 		EWFD_LOG("Step-n: Free %d/%d eWFD units on circ: %d remain: %d", free_num, 
@@ -248,9 +228,17 @@ int ewfd_handle_padding_negotiate(circuit_t *circ, circpad_negotiate_t *negotiat
 	if (negotiate->command == CIRCPAD_COMMAND_EWFD_START) {
 		ewfd_padding_unit_st *unit = ewfd_add_unit_to_circ_by_uuid(circ, negotiate->machine_type, true);
 		if (unit != NULL) {
-			if (circ->ewfd_padding_rt->units_cnt != negotiate->machine_ctr) {
+			// client can install padding unit on mutiple hops, machine_ctr is a local version of client
+			if (circ->ewfd_padding_rt->last_unit_idx != negotiate->machine_ctr) {
 				EWFD_LOG("WARN: Client and relay have different counts of padding units: "
-					"%u vs %u", circ->ewfd_padding_rt->units_cnt, negotiate->machine_ctr);
+					"%u vs %u", circ->ewfd_padding_rt->last_unit_idx, negotiate->machine_ctr);
+				/* TODO: why this number is not equal ? 
+					this path should only have one client to install padding unit.
+				*/
+				/* 现阶段只有一个unit, 其逻辑是，client 先init c->s的，然后server init s->c的，所以两边的version(padding unit)个数应该相等。
+				如果不相等应该是消息不一致？这个circuit上的前面请求在5次retry没有让peer启动
+				*/
+				// assert(false);
 			}
 			// circpad_cell_event_nonpadding_received(circ);
 
@@ -268,7 +256,7 @@ int ewfd_handle_padding_negotiate(circuit_t *circ, circpad_negotiate_t *negotiat
 				negotiate->machine_ctr);
 		} else {
 			should_response = false;
-			if (circ->ewfd_padding_rt != NULL && negotiate->machine_ctr <= circ->ewfd_padding_rt->units_cnt) {
+			if (circ->ewfd_padding_rt != NULL && negotiate->machine_ctr <= circ->ewfd_padding_rt->last_unit_idx) {
 				EWFD_LOG("OR stop old padding unit: %u %u", negotiate->machine_type, negotiate->machine_ctr);
 			} else {
 				EWFD_LOG("WARN: OR stop unkown padding unit: %u %u", negotiate->machine_type, negotiate->machine_ctr);
@@ -332,7 +320,7 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 		if (negotiated->response == CIRCPAD_RESPONSE_ERR) {
 			// 如果Machine存在了就释放，并报错
 			if (free_ewfd_padding_unit_by_uuid(circ, negotiated->machine_type, negotiated->machine_ctr)) {
-				EWFD_LOG("ERROR: Middle node did not accept our padding request on circuit "
+				EWFD_LOG("WARN: Middle node did not accept our padding request on circuit "
 					"%u (%d)", TO_ORIGIN_CIRCUIT(circ)->global_identifier, circ->purpose);
 			}
 		} else {
@@ -495,17 +483,57 @@ static void ewfd_init_runtime(circuit_t *circ) {
 	remain_padding_ticker = 0;
 }
 
-static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_conf_st *conf, uint32_t unit_version) {
+static int ewfd_release_runtime(circuit_t *circ) {
+	int free_num = 0;
+	if (circ->ewfd_padding_rt != NULL) {
+		on_ewfd_rt_destory(circ);
+
+		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
+			if (circ->ewfd_padding_rt->schedule_slots[i] != NULL) {
+				free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->schedule_slots[i]);
+				circ->ewfd_padding_rt->schedule_slots[i] = NULL;
+				free_num++;
+			}
+		}
+		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
+			if (circ->ewfd_padding_rt->padding_slots[i] != NULL) {
+				free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->padding_slots[i]);
+				circ->ewfd_padding_rt->padding_slots[i] = NULL;
+				free_num++;
+			}
+		}
+
+		assert(circ->ewfd_padding_rt->units_num == 0);
+
+		// free timer
+		timer_free(circ->ewfd_padding_rt->padding_unit_ctx.ticker);
+		timer_free(circ->ewfd_padding_rt->schedule_unit_ctx.ticker);
+
+		tor_free(circ->ewfd_padding_rt);
+	}
+	return free_num;
+}
+
+static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_conf_st *conf) {
 	ewfd_padding_unit_st *unit = tor_malloc_zero(sizeof(ewfd_padding_unit_st));
 	unit->conf = conf;
-	unit->unit_version = unit_version;
 	unit->ewfd_unit = init_ewfd_unit(conf);
+	cur_rt->units_num++;
+
+	// increase padding machine counter, do not decrease
+	cur_rt->last_unit_idx++;
+	if (cur_rt->last_unit_idx == 0) { // overflow
+		cur_rt->last_unit_idx = 1;
+	}
+	unit->unit_version = cur_rt->last_unit_idx;
+	
 	padding_units_num++;
 	return unit;
 }
 
-static void free_ewfd_padding_unit(ewfd_padding_unit_st *unit) {
+static void free_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_unit_st *unit) {
 	padding_units_num--;
+	cur_rt->units_num--;
 	free_ewfd_unit(unit->ewfd_unit);
 	tor_free(unit);
 }
@@ -533,47 +561,49 @@ static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint
 	}
 
 	ewfd_padding_unit_st *cur_unit = ewfd_get_unit_on_circ_by_uuid(circ, unit_uuid);
-	if (cur_unit != NULL) {
-		if (replace) {
-			free_ewfd_padding_unit(cur_unit);
-		} else {
-			EWFD_LOG("INGORE: padding unit already exists: %u version: %u", unit_uuid, cur_unit->unit_version);
-			return cur_unit;
-		}
+	if (cur_unit != NULL && !replace) {
+		EWFD_LOG("INGORE: padding unit already exists: %u version: %u", unit_uuid, cur_unit->unit_version);
+		return cur_unit;
 	}
-	//EWFD_LOG("not find unit, add new unit: %u %d", unit_uuid, cur_unit == NULL);
-	// increase padding machine counter
-	circ->ewfd_padding_rt->units_cnt++;
-	if (circ->ewfd_padding_rt->units_cnt == 0) {
-		circ->ewfd_padding_rt->units_cnt = 1;
-	}
-	
-	// put in previous slot or first empty slot 
+
+	// repalce the previous unit if exist, otherwise put in the first empty slot
 	int found = -1, first_empty_slot = -1, slot = 0;
-	cur_unit = new_ewfd_padding_unit(target_conf, circ->ewfd_padding_rt->units_cnt);
+	cur_unit = new_ewfd_padding_unit(circ->ewfd_padding_rt, target_conf);
 	if (target_conf->unit_type == EWFD_UNIT_PADDING) {
 		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
 			if (circ->ewfd_padding_rt->padding_slots[i] == NULL && first_empty_slot == -1) {
 				first_empty_slot = i;
 			}
-			if (circ->ewfd_padding_rt->padding_slots[i] && circ->ewfd_padding_rt->padding_slots[i]->conf->unit_uuid == unit_uuid) {
+			if (circ->ewfd_padding_rt->padding_slots[i] 
+					&& circ->ewfd_padding_rt->padding_slots[i]->conf->unit_uuid == unit_uuid) {
 				found = i;
 				break;
 			}
 		}
-		slot = found == -1 ? first_empty_slot : found;
+
+		// if full, put at 0 slot
+		slot = found != -1 ? found : (first_empty_slot != -1 ? first_empty_slot : 0);
+		if (circ->ewfd_padding_rt->schedule_slots[slot]) {
+			free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->padding_slots[found]);
+		}
 		circ->ewfd_padding_rt->padding_slots[slot] = cur_unit;
 	} else {
 		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
 			if (circ->ewfd_padding_rt->schedule_slots[i] == NULL && first_empty_slot == -1) {
 				first_empty_slot = i;
 			}
-			if (circ->ewfd_padding_rt->schedule_slots[i] && circ->ewfd_padding_rt->schedule_slots[i]->conf->unit_uuid == unit_uuid) {
+			if (circ->ewfd_padding_rt->schedule_slots[i] 
+				&& circ->ewfd_padding_rt->schedule_slots[i]->conf->unit_uuid == unit_uuid) {
 				found = i;
 				break;
 			}
 		}
-		slot = found == -1 ? first_empty_slot : found;
+
+		// if full, put at 0 slot
+		slot = found != -1 ? found : (first_empty_slot != -1 ? first_empty_slot : 0);
+		if (circ->ewfd_padding_rt->schedule_slots[slot]) {
+			free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->schedule_slots[found]);
+		}
 		circ->ewfd_padding_rt->schedule_slots[slot] = cur_unit;
 	}
 
@@ -630,7 +660,7 @@ static bool free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint3
 			if (circ->ewfd_padding_rt->padding_slots[i]->unit_version != unit_version) {
 				EWFD_LOG("ERROR: padding unit version mismatch. uuid: %d, version: %d, expected: %d", unit_uuid, unit_version, circ->ewfd_padding_rt->padding_slots[i]->unit_version);
 			}
-			free_ewfd_padding_unit(circ->ewfd_padding_rt->padding_slots[i]);
+			free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->padding_slots[i]);
 			circ->ewfd_padding_rt->padding_slots[i] = NULL;
 			return true;
 		}
@@ -638,9 +668,9 @@ static bool free_ewfd_padding_unit_by_uuid(circuit_t *circ, int unit_uuid, uint3
 
 	for (int i = 0; i < CIRCPAD_MAX_MACHINES; i++) {
 		if (circ->ewfd_padding_rt->schedule_slots[i]->unit_version != unit_version) {
-				EWFD_LOG("ERROR: schedule unit version mismatch. uuid: %d, version: %d, expected: %d", unit_uuid, unit_version, circ->ewfd_padding_rt->schedule_slots[i]->unit_version);
+			EWFD_LOG("ERROR: schedule unit version mismatch. uuid: %d, version: %d, expected: %d", unit_uuid, unit_version, circ->ewfd_padding_rt->schedule_slots[i]->unit_version);
 		}
-		free_ewfd_padding_unit(circ->ewfd_padding_rt->schedule_slots[i]);
+		free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->schedule_slots[i]);
 		circ->ewfd_padding_rt->schedule_slots[i] = NULL;
 		return true;
 	}
@@ -876,8 +906,8 @@ static void trigger_efwd_schedule_ticker(tor_timer_t *timer, void *args, const s
 	EWFD_LOG("[schedule-tick-n] [%u] want: %u actual: %u delta: %u next: %u", gid, 
 		ewfd_rt->schedule_unit_ctx.last_tick_ti, now_ti, detla, 
 		ewfd_rt->schedule_unit_ctx.last_tick_ti + next_tick);
-	ewfd_rt->schedule_unit_ctx.last_tick_ti = now_ti;
 #endif
+	ewfd_rt->schedule_unit_ctx.last_tick_ti = now_ti;
 }
 
 static void trigger_efwd_padding_ticker(tor_timer_t *timer, void *args, const struct monotime_t *time) {
@@ -899,9 +929,11 @@ static void trigger_efwd_padding_ticker(tor_timer_t *timer, void *args, const st
 		ewfd_schedule_ticker(ewfd_rt->padding_unit_ctx.ticker, next_tick);
 	}
 
+#if 1
 	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
 	EWFD_LOG("[padding-tick-n] [%u] want: %u actual: %u delta: %u next: %u", gid,
 		ewfd_rt->padding_unit_ctx.last_tick_ti, now_ti, detla, 
 		ewfd_rt->padding_unit_ctx.last_tick_ti + next_tick);
+#endif
 	ewfd_rt->padding_unit_ctx.last_tick_ti = now_ti;
 }

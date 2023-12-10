@@ -116,7 +116,8 @@ typedef struct ewfd_unit_ctx_t {
 typedef struct ewfd_padding_runtime_t {
 	ewfd_padding_unit_st *schedule_slots[MAX_EWFD_UNITS_ON_CIRC]; // 部署多个schedule算法, 同时只能启用一个 
 	ewfd_padding_unit_st *padding_slots[MAX_EWFD_UNITS_ON_CIRC];  // 部署多个padding算法, 同时只能启用一个
-	uint8_t units_cnt; 											  // 当前一共多少个unit, 记录当前unit version（只增不减）
+	uint8_t units_num;											  // 记录当前剩余unit数量, all - release。用于调试，确保内存分配正确
+	uint8_t last_unit_idx; 										  // 一共多少个unit, 记录当前unit version（只增不减）
 	circuit_t *on_circ;
 	char circ_tag[64]; 											 // for debug
 	struct ewfd_circ_status_t circ_status;

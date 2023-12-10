@@ -8,6 +8,7 @@
 #include "lib/ebpf/libebpf.h"
 #include "lib/ebpf/ewfd-defense/src/ewfd_api.h"
 #include "lib/log/util_bug.h"
+#include "lib/malloc/malloc.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -79,6 +80,7 @@ ewfd_unit_st *init_ewfd_unit(struct ewfd_padding_conf_t *conf) {
 
 void free_ewfd_unit(ewfd_unit_st *ewfd_unit) { 
 	ewfd_unit_clear(ewfd_unit);
+	tor_free(ewfd_unit);
 }
 
 uint64_t run_ewfd_unit(ewfd_unit_st *ewfd_unit, void *ewfd_ctx, size_t len) {
