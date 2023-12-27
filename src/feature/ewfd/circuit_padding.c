@@ -62,7 +62,6 @@ const char *ewfd_peer_state_str[] = {
 	"EWFD_PEER_CLEAR",
 };
 
-static int remain_padding_ticker = 0;
 
 static void ewfd_init_runtime(circuit_t *circ);
 static int ewfd_release_runtime(circuit_t *circ);
@@ -195,25 +194,21 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 }
 
 void free_all_ewfd_units_on_circ(circuit_t *circ) {
-	int cid = CIRCUIT_IS_ORIGIN(circ) ? TO_ORIGIN_CIRCUIT(circ)->global_identifier : -1;
 	int free_num = 0;
 	int all_num = 0;
 	int remain_padding = 0;
 	if (circ->ewfd_padding_rt != NULL) {
 		all_num = circ->ewfd_padding_rt->last_unit_idx;
-		remain_padding = circ->ewfd_padding_rt->last_unit_idx - free_num;
 		free_num = ewfd_release_runtime(circ);
-	}
-	if (free_num > 0) {
-		EWFD_LOG("Step-n: Free %d/%d eWFD units on circ: %d remain: %d", free_num, 
-			all_num, cid, remain_padding);
+		remain_padding = all_num - free_num;
+		EWFD_LOG("Free %d/%d eWFD units on circ: %u remain: %d", free_num, 
+			all_num, ewfd_get_circuit_id(circ), remain_padding);
 	}
 }
 
 // remove packet on queue
 void on_ewfd_rt_destory(circuit_t *circ) {
-	uint32_t gid = ewfd_get_circuit_id(circ);
-	EWFD_LOG("----------------------------------on_ewfd_rt_destory: %u", gid);
+	EWFD_LOG("----------------------------------on_ewfd_rt_destory: %u", ewfd_get_circuit_id(circ));
 	remove_remain_dummy_packets((uintptr_t) circ);
 	circ->ewfd_padding_rt->on_circ = NULL;
 }
@@ -472,6 +467,8 @@ uint8_t get_current_padding_unit_uuid(ewfd_padding_runtime_st *ewfd_rt) {
 */
 
 static void ewfd_init_runtime(circuit_t *circ) {
+	EWFD_LOG("ewfd_init_runtime circ: %u", ewfd_get_circuit_id(circ));
+
 	if (circ->ewfd_padding_rt == NULL) {
 		circ->ewfd_padding_rt = tor_malloc_zero(sizeof(ewfd_padding_runtime_st));
 		circ->ewfd_padding_rt->on_circ = circ;
@@ -479,8 +476,6 @@ static void ewfd_init_runtime(circuit_t *circ) {
 	}
 
 	start_ewfd_padding_framework();
-
-	remain_padding_ticker = 0;
 }
 
 static int ewfd_release_runtime(circuit_t *circ) {
@@ -506,8 +501,10 @@ static int ewfd_release_runtime(circuit_t *circ) {
 		assert(circ->ewfd_padding_rt->units_num == 0);
 
 		// free timer
-		timer_free(circ->ewfd_padding_rt->padding_unit_ctx.ticker);
-		timer_free(circ->ewfd_padding_rt->schedule_unit_ctx.ticker);
+		ewfd_free_ticker(&circ->ewfd_padding_rt->padding_unit_ctx.ticker);
+		ewfd_free_ticker(&circ->ewfd_padding_rt->schedule_unit_ctx.ticker);
+
+		EWFD_LOG("ewfd_release_runtime circ: %u", ewfd_get_circuit_id(circ));
 
 		tor_free(circ->ewfd_padding_rt);
 	}
@@ -801,20 +798,12 @@ static bool start_efwd_schedule_ticker(ewfd_padding_runtime_st *ewfd_rt) {
 	int slot = ewfd_rt->schedule_unit_ctx.active_slot;
 	tor_assert(ewfd_rt->schedule_slots[slot]);
 
-	if (!ewfd_rt->schedule_unit_ctx.ticker) {
-		ewfd_rt->schedule_unit_ctx.ticker = timer_new(trigger_efwd_schedule_ticker, ewfd_rt);
-	} else {
-		timer_disable(ewfd_rt->schedule_unit_ctx.ticker);
-		timer_set_cb(ewfd_rt->schedule_unit_ctx.ticker, trigger_efwd_schedule_ticker, ewfd_rt);
-	}
+	EWFD_LOG("start_efwd_schedule_ticker circ: %u", ewfd_get_circuit_id(ewfd_rt->on_circ));
+	ewfd_init_ticker(&ewfd_rt->schedule_unit_ctx.ticker, trigger_efwd_schedule_ticker, ewfd_rt);
 
 	// uint32_t next_tick = ewfd_rt->schedule_slots[slot]->conf->tick_interval;
 	uint32_t next_tick = 1; // 第一次立刻触发
-
-	struct timeval timeout;
-	timeout.tv_sec = next_tick * 1000 / TOR_USEC_PER_SEC;
-	timeout.tv_usec = (next_tick * 1000) % TOR_USEC_PER_SEC;
-	timer_schedule(ewfd_rt->schedule_unit_ctx.ticker, &timeout);
+	ewfd_schedule_ticker(ewfd_rt->schedule_unit_ctx.ticker, next_tick);
 	
 	ewfd_rt->schedule_unit_ctx.is_enable = true;
 	ewfd_rt->schedule_unit_ctx.padding_start_ti = (uint32_t) monotime_absolute_msec();
@@ -823,8 +812,10 @@ static bool start_efwd_schedule_ticker(ewfd_padding_runtime_st *ewfd_rt) {
 	ewfd_rt->schedule_unit_ctx.last_tick_ti = ewfd_rt->schedule_unit_ctx.padding_start_ti + next_tick;
 	
 	// mi->is_padding_timer_scheduled = 1;
+#if 0
 	EWFD_LOG("[schedule-tick-1] %s timer is added: %u next: %u", ewfd_rt->circ_tag, 
 		next_tick, ewfd_rt->padding_unit_ctx.padding_start_ti);
+#endif
 	return true;
 }
 
@@ -833,22 +824,13 @@ static bool start_efwd_padding_ticker(ewfd_padding_runtime_st *ewfd_rt) {
 	tor_assert(ewfd_rt->padding_slots[slot]);
 
 	// set timer
-	if (!ewfd_rt->padding_unit_ctx.ticker) {
-		ewfd_rt->padding_unit_ctx.ticker = timer_new(trigger_efwd_padding_ticker, ewfd_rt);
-	} else { // set timer again if disabled
-		timer_disable(ewfd_rt->padding_unit_ctx.ticker);
-		timer_set_cb(ewfd_rt->padding_unit_ctx.ticker, trigger_efwd_padding_ticker, ewfd_rt);
-	}
-	remain_padding_ticker++;
+	EWFD_LOG("start_efwd_padding_ticker circ: %u", ewfd_get_circuit_id(ewfd_rt->on_circ));
+	ewfd_init_ticker(&ewfd_rt->padding_unit_ctx.ticker, trigger_efwd_padding_ticker, ewfd_rt);
 
 	// uint32_t next_tick = ewfd_rt->padding_slots[slot]->conf->tick_interval;
 	uint32_t next_tick = 1; // 第一次立刻触发
 
-	// enable ticker
-	struct timeval timeout;
-	timeout.tv_sec = next_tick * 1000 / TOR_USEC_PER_SEC;
-	timeout.tv_usec = (next_tick * 1000) % TOR_USEC_PER_SEC;
-	timer_schedule(ewfd_rt->padding_unit_ctx.ticker, &timeout);
+	ewfd_schedule_ticker(ewfd_rt->padding_unit_ctx.ticker, next_tick);
 	
 	uint32_t now_ti = (uint32_t) monotime_absolute_msec() + next_tick;
 	ewfd_rt->padding_unit_ctx.is_enable = true;
@@ -862,8 +844,11 @@ static bool start_efwd_padding_ticker(ewfd_padding_runtime_st *ewfd_rt) {
 	
 	// mi->is_padding_timer_scheduled = 1;
 	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
+
+#if 0
 	EWFD_LOG("[padding-tick-1] [%u] timer is added: %u next: %u", gid, 
 		next_tick, ewfd_rt->padding_unit_ctx.padding_start_ti);
+#endif
 	return true;
 }
 
@@ -875,10 +860,9 @@ static void halt_ewfd_padding_ticker(ewfd_padding_runtime_st *ewfd_rt) {
 	if (ewfd_rt->padding_unit_ctx.ticker) {
 		ewfd_remove_ticker(&ewfd_rt->padding_unit_ctx.ticker);
 	}
-	remain_padding_ticker--;
-	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
-	EWFD_LOG("[padding-tick-s] [%u] slot: %d is deactive remain: %d", gid, ewfd_rt->padding_unit_ctx.active_slot, 
-		remain_padding_ticker);
+#if 0
+	EWFD_LOG("[padding-tick-s] [%u] slot: %d", ewfd_get_circuit_id(ewfd_rt->on_circ), ewfd_rt->padding_unit_ctx.active_slot);
+#endif
 }
 
 static void trigger_efwd_schedule_ticker(tor_timer_t *timer, void *args, const struct monotime_t *time) {
@@ -901,7 +885,7 @@ static void trigger_efwd_schedule_ticker(tor_timer_t *timer, void *args, const s
 	}
 
 // 每个circuit每秒2次
-#if 1
+#if 0
 	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
 	EWFD_LOG("[schedule-tick-n] [%u] want: %u actual: %u delta: %u next: %u", gid, 
 		ewfd_rt->schedule_unit_ctx.last_tick_ti, now_ti, detla, 
@@ -922,14 +906,10 @@ static void trigger_efwd_padding_ticker(tor_timer_t *timer, void *args, const st
 	uint32_t next_tick = ewfd_rt->padding_unit_ctx.next_tick;
 	// schedule again
 	if (next_tick != 0) {
-		// struct timeval timeout;
-		// timeout.tv_sec = next_tick * 1000 / TOR_USEC_PER_SEC;
-		// timeout.tv_usec = (next_tick * 1000) % TOR_USEC_PER_SEC;
-		// timer_schedule(ewfd_rt->padding_unit_ctx.ticker, &timeout);
 		ewfd_schedule_ticker(ewfd_rt->padding_unit_ctx.ticker, next_tick);
 	}
 
-#if 1
+#if 0
 	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
 	EWFD_LOG("[padding-tick-n] [%u] want: %u actual: %u delta: %u next: %u", gid,
 		ewfd_rt->padding_unit_ctx.last_tick_ti, now_ti, detla, 

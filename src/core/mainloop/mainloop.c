@@ -47,6 +47,7 @@
  **/
 
 #define MAINLOOP_PRIVATE
+#include "feature/ewfd/debug.h"
 #include "core/or/or.h"
 
 #include "app/config/config.h"
@@ -2540,8 +2541,16 @@ run_main_loop_until_done(void)
   main_loop_should_exit = 0;
   main_loop_exit_value = 0;
 
+  // make tor ealier exit to check memory error
+  // int tick = 50;
+
   do {
     loop_result = run_main_loop_once();
+    // --tick;
+    // if (tick < 0) break;
+    // if (tick % 10 == 0) {
+    //   EWFD_LOG("DEBUG: tick now: %d ti: %ld", tick, approx_time());
+    // }
   } while (loop_result == 1);
 
   if (main_loop_should_exit)

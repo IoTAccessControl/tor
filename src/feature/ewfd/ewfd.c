@@ -1,11 +1,13 @@
 #include "feature/ewfd/ewfd.h"
 #include "feature/ewfd/debug.h"
+#include "feature/ewfd/ewfd_ticker.h"
 #include "feature/ewfd/utils.h"
 #include "feature/ewfd/circuit_padding.h"
 #include "lib/log/util_bug.h"
 #include "core/or/or.h"
 #include "ext/tor_queue.h"
 #include "feature/ewfd/ewfd_conf.h"
+#include <assert.h>
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
 
@@ -53,7 +55,6 @@ void ewfd_framework_init(void) {
 
 	parser_client_conf();
 
-	// init_framework_ticker();
 }
 
 void start_ewfd_padding_framework(void) {
@@ -64,7 +65,8 @@ void start_ewfd_padding_framework(void) {
 
 void ewfd_framework_free(void) {
 
-	EWFD_LOG("ewfd_padding_free");
+	EWFD_LOG("ewfd_framework_free");
+	free_framework_ticker();
 	if (ewfd_client_conf != NULL) {
 		if (ewfd_client_conf->client_unit_confs != NULL) {
 			SMARTLIST_FOREACH(ewfd_client_conf->client_unit_confs,
@@ -79,11 +81,12 @@ void ewfd_framework_free(void) {
 		// free queue
 		free_ewfd_queues(ewfd_framework_instance);
 
-		// free_framework_ticker();
 		tor_free(ewfd_framework_instance);
 	}
 
 	free_ewfd_code_cache();
+	// assert(total_ewfd_timer == 0);
+	EWFD_LOG("ewfd_framework_free total timer: %d released timer: %d", total_ewfd_timer, released_ewfd_timer);
 }
 
 /* 按照时间顺序来插入包
@@ -151,8 +154,6 @@ static void parser_client_conf(void) {
 
 static void init_framework_ticker(void) {
 	static const struct timeval gap = {0, MIN_EWFD_TICK_GAP_MS * 1000};
-	// ewfd_framework_instance->padding_ticker = periodic_timer_new(tor_libevent_get_base(), &gap, 
-	// 	on_padding_unit_tick, NULL);
 	
 	ewfd_framework_instance->packet_ticker = periodic_timer_new(tor_libevent_get_base(), &gap, 
 		on_padding_queue_tick, NULL);
@@ -162,7 +163,9 @@ static void init_framework_ticker(void) {
 
 static void free_framework_ticker(void) {
 	tor_assert(ewfd_framework_instance);
-	periodic_timer_free(ewfd_framework_instance->padding_ticker);
+	if (ewfd_framework_instance->packet_ticker != NULL) {
+		periodic_timer_free(ewfd_framework_instance->packet_ticker);
+	}
 }
 
 static void init_ewfd_queues(ewfd_framework_st *framework) {
@@ -191,7 +194,10 @@ static void on_padding_unit_tick(periodic_timer_t *timer, void *data) {
 }
 
 void remove_remain_dummy_packets(uintptr_t on_circ) {
-	tor_assert(ewfd_framework_instance);
+	// tor is free
+	if (ewfd_framework_instance == NULL) {
+		return;
+	}
 	ewfd_packet_queue_st *queue = (ewfd_packet_queue_st *) ewfd_framework_instance->dummy_packet_queue;
 	{
 		ewfd_dummy_packet_st *cur_pkt = NULL;
