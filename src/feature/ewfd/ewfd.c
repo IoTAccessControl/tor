@@ -8,6 +8,7 @@
 #include "ext/tor_queue.h"
 #include "feature/ewfd/ewfd_conf.h"
 #include <assert.h>
+#include "core/or/circuit_st.h"
 #include "core/or/or_circuit_st.h"
 #include "core/or/origin_circuit_st.h"
 
@@ -96,7 +97,6 @@ int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti) {
 		return -1;
 	}
 
-	
 	if (ewfd_framework_instance->last_packet_ti == 0) {
 		ewfd_framework_instance->last_packet_ti = insert_ti;
 		EWFD_LOG("init_ewfd_queues start-ti: %u", ewfd_framework_instance->last_packet_ti);
@@ -264,12 +264,11 @@ static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
 				break;
 			}
 			circuit_t * cur_circ = (circuit_t *) cur_pkt->on_circt;
-			if (cur_circ && cur_circ->ewfd_padding_rt) {
-				ewfd_padding_op(EWFD_OP_DUMMY_PACKET, cur_circ, 0);
+			if (ewfd_padding_op(EWFD_OP_DUMMY_PACKET, cur_circ, 0)) {
 				pkt_num++;
 				ewfd_framework_instance->all_pkt++;
-				last_pkt_ti = cur_pkt->insert_ti;
 			}
+			last_pkt_ti = cur_pkt->insert_ti;
 
 			// remove sent packet
 			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);

@@ -131,8 +131,9 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 
 // dispatch padding commands
 int add_ewfd_units_on_circ(circuit_t *circ);
+ewfd_padding_runtime_st* ewfd_get_runtime_on_circ(circuit_t *circ);
 void free_all_ewfd_units_on_circ(circuit_t *circ);
-void on_ewfd_rt_destory(circuit_t *circ);
+void on_ewfd_runtime_destory(circuit_t *circ);
 
 uint8_t get_current_padding_unit_slot(ewfd_padding_runtime_st *ewfd_rt, uint8_t uuid);
 uint8_t get_current_padding_unit_uuid(ewfd_padding_runtime_st *ewfd_rt);

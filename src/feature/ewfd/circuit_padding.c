@@ -193,6 +193,16 @@ int add_ewfd_units_on_circ(circuit_t *circ) {
 	return 0;
 }
 
+ewfd_padding_runtime_st* ewfd_get_runtime_on_circ(circuit_t *circ) {
+	if (circ && circ->ewfd_padding_rt) {
+		// 防止circuit复用
+		if (circ->magic == ORIGIN_CIRCUIT_MAGIC || circ->magic == OR_CIRCUIT_MAGIC) {
+			return circ->ewfd_padding_rt;
+		}
+	}
+	return NULL;
+}
+
 void free_all_ewfd_units_on_circ(circuit_t *circ) {
 	int free_num = 0;
 	int all_num = 0;
@@ -207,8 +217,8 @@ void free_all_ewfd_units_on_circ(circuit_t *circ) {
 }
 
 // remove packet on queue
-void on_ewfd_rt_destory(circuit_t *circ) {
-	EWFD_LOG("----------------------------------on_ewfd_rt_destory: %u", ewfd_get_circuit_id(circ));
+void on_ewfd_runtime_destory(circuit_t *circ) {
+	// EWFD_LOG("----------------------------------on_ewfd_runtime_destory: %u", ewfd_get_circuit_id(circ));
 	remove_remain_dummy_packets((uintptr_t) circ);
 	circ->ewfd_padding_rt->on_circ = NULL;
 }
@@ -348,14 +358,13 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 /** 实现padding操作
 */
 bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay) {
-	tor_assert(circ->ewfd_padding_rt);
-	int slot = circ->ewfd_padding_rt->padding_unit_ctx.active_slot;
-	if (circ->ewfd_padding_rt->padding_slots[slot] == NULL) {
-		// circ中的padding unit已经被release了
+	ewfd_padding_runtime_st *ewfd_rt = ewfd_get_runtime_on_circ(circ);
+	if (ewfd_rt == NULL) {
 		return false;
 	}
-	tor_assert(circ->ewfd_padding_rt->padding_slots[slot]->conf);
-	int hopnum = circ->ewfd_padding_rt->padding_slots[slot]->conf->target_hopnum;
+
+	int slot = ewfd_rt->padding_unit_ctx.active_slot;
+	int hopnum = ewfd_rt->padding_slots[slot]->conf->target_hopnum;
 	if (op == EWFD_OP_DELAY_PACKET) {
 		EWFD_LOG("WARN: OP Delay is not impl");
 		return false;
@@ -376,14 +385,18 @@ bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay) {
 
 bool ewfd_schedule_op(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args) {
 	// ewfd_padding_unit_st *unit = ewfd_get_unit_on_circ_by_uuid(circ, target_unit);
+	ewfd_padding_runtime_st *ewfd_rt = ewfd_get_runtime_on_circ(circ);
+	if (ewfd_rt == NULL) {
+		return false;
+	}
 
 	if (op == EWFD_SCHEDULE_RESET_UNIT) {
 		uint8_t state = *(uint8_t *)args;
 		if (state == EWFD_PEER_WORK) {
-			circ->ewfd_padding_rt->padding_unit_ctx.active_slot = 
-				get_current_padding_unit_slot(circ->ewfd_padding_rt, target_unit);
+			ewfd_rt->padding_unit_ctx.active_slot = get_current_padding_unit_slot(ewfd_rt, target_unit);
 		}
 		reset_ewfd_padding_unit_on_circ(circ, state);
+		return true;
 	}
 	return false;
 }
@@ -404,7 +417,8 @@ Schedule Unit后续功能（如果长时间运行就需要切换算法）：
 */
 int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin, uint8_t relay_command) {
 	// no padding units on circ
-	if (circ->ewfd_padding_rt == NULL) {
+	ewfd_padding_runtime_st *ewfd_rt = ewfd_get_runtime_on_circ(circ);
+	if (ewfd_rt == NULL) {
 		return 0;
 	}
 	
@@ -418,8 +432,8 @@ int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin
 
 	// step-1: start/stop schdule/padding unit
 	// check and start schedule unit
-	if (!circ->ewfd_padding_rt->schedule_unit_ctx.is_enable) {
-		run_efwd_schedule_unit(circ->ewfd_padding_rt);
+	if (!ewfd_rt->schedule_unit_ctx.is_enable) {
+		run_efwd_schedule_unit(ewfd_rt);
 	}
 	// TODO: trigger schedule unit on states changes
 	uint32_t gid = ewfd_get_circuit_id(circ);
@@ -444,9 +458,9 @@ int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin
 	// if (relay_command != RELAY_COMMAND_DROP) {
 		
 	// }
-	circ->ewfd_padding_rt->circ_status.last_cell_ti = monotime_absolute_msec();
-	circ->ewfd_padding_rt->circ_status.send_cell_cnt += is_send;
-	circ->ewfd_padding_rt->circ_status.recv_cell_cnt += !is_send;
+	ewfd_rt->circ_status.last_cell_ti = monotime_absolute_msec();
+	ewfd_rt->circ_status.send_cell_cnt += is_send;
+	ewfd_rt->circ_status.recv_cell_cnt += !is_send;
 
 	return 0;
 }
@@ -486,7 +500,7 @@ static void ewfd_init_runtime(circuit_t *circ) {
 static int ewfd_release_runtime(circuit_t *circ) {
 	int free_num = 0;
 	if (circ->ewfd_padding_rt != NULL) {
-		on_ewfd_rt_destory(circ);
+		on_ewfd_runtime_destory(circ);
 
 		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
 			if (circ->ewfd_padding_rt->schedule_slots[i] != NULL) {
@@ -543,9 +557,9 @@ static void free_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding
 // 根据收到的unit type，找到已有的padding unit，到or_circ
 static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid, bool replace) {
 	ewfd_padding_conf_st *target_conf = NULL;
-	smartlist_t *client_unit_confs = ewfd_client_conf->client_unit_confs;
+	smartlist_t *unit_confs = ewfd_client_conf->client_unit_confs;
 
-	SMARTLIST_FOREACH_BEGIN(client_unit_confs, ewfd_padding_conf_st *, conf) {
+	SMARTLIST_FOREACH_BEGIN(unit_confs, ewfd_padding_conf_st *, conf) {
 		if (conf->unit_uuid == unit_uuid) {
 			target_conf = conf;
 			break;
@@ -559,8 +573,14 @@ static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint
 
 	// relay peer's ewfd_padding_rt init here
 	if (circ->ewfd_padding_rt == NULL) {
+		// circ被保留，or上有包还没发完，这时究竟需不需要padding??
+		if (circ->magic != ORIGIN_CIRCUIT_MAGIC && circ->magic != OR_CIRCUIT_MAGIC) {
+			EWFD_LOG("ERROR: circ is not origin or relay: %u", ewfd_get_circuit_id(circ));
+			return false;
+		}
 		ewfd_init_runtime(circ);
 	}
+	// 还得确定是不是circuit复用，
 
 	ewfd_padding_unit_st *cur_unit = ewfd_get_unit_on_circ_by_uuid(circ, unit_uuid);
 	if (cur_unit != NULL && !replace) {
@@ -576,8 +596,7 @@ static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint
 			if (circ->ewfd_padding_rt->padding_slots[i] == NULL && first_empty_slot == -1) {
 				first_empty_slot = i;
 			}
-			if (circ->ewfd_padding_rt->padding_slots[i] 
-					&& circ->ewfd_padding_rt->padding_slots[i]->conf->unit_uuid == unit_uuid) {
+			if (circ->ewfd_padding_rt->padding_slots[i] && circ->ewfd_padding_rt->padding_slots[i]->conf->unit_uuid == unit_uuid) {
 				found = i;
 				break;
 			}
@@ -594,8 +613,7 @@ static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint
 			if (circ->ewfd_padding_rt->schedule_slots[i] == NULL && first_empty_slot == -1) {
 				first_empty_slot = i;
 			}
-			if (circ->ewfd_padding_rt->schedule_slots[i] 
-				&& circ->ewfd_padding_rt->schedule_slots[i]->conf->unit_uuid == unit_uuid) {
+			if (circ->ewfd_padding_rt->schedule_slots[i] && circ->ewfd_padding_rt->schedule_slots[i]->conf->unit_uuid == unit_uuid) {
 				found = i;
 				break;
 			}
@@ -742,10 +760,11 @@ static int ewfd_padding_op_delay_packet(circuit_t *circ) {
 3. end的时候deactive
 */
 static bool reset_ewfd_padding_unit_on_circ(circuit_t *circ, uint8_t state) {
-	tor_assert(circ->ewfd_padding_rt); 
+	ewfd_padding_runtime_st *ewfd_rt = ewfd_get_runtime_on_circ(circ);
+	tor_assert(ewfd_rt);
 
-	int active_slot = circ->ewfd_padding_rt->padding_unit_ctx.active_slot;
-	ewfd_padding_unit_st *active_unit = circ->ewfd_padding_rt->padding_slots[active_slot];
+	int active_slot = ewfd_rt->padding_unit_ctx.active_slot;
+	ewfd_padding_unit_st *active_unit = ewfd_rt->padding_slots[active_slot];
 
 	if (active_unit == NULL) {
 		EWFD_LOG("WARNING: padding unit is not found on slot: %d", active_slot);
@@ -753,19 +772,19 @@ static bool reset_ewfd_padding_unit_on_circ(circuit_t *circ, uint8_t state) {
 	}
 
 	if (state == EWFD_PEER_WORK) { // enable padding unit
-		if (!circ->ewfd_padding_rt->padding_unit_ctx.is_enable) {
-			start_efwd_padding_ticker(circ->ewfd_padding_rt);
+		if (!ewfd_rt->padding_unit_ctx.is_enable) {
+			start_efwd_padding_ticker(ewfd_rt);
 		}
 
 		// notify peer, may need to retry??
-		if (circ->ewfd_padding_rt->padding_slots[active_slot]->peer_state != EWFD_PEER_WORK) {
-			return notify_peer_units_states(circ->ewfd_padding_rt, EWFD_PEER_WORK);
+		if (ewfd_rt->padding_slots[active_slot]->peer_state != EWFD_PEER_WORK) {
+			return notify_peer_units_states(ewfd_rt, EWFD_PEER_WORK);
 		}
 	} else if (state == EWFD_PEER_PAUSE) { // pause padding unit
-		halt_ewfd_padding_ticker(circ->ewfd_padding_rt);
+		halt_ewfd_padding_ticker(ewfd_rt);
 		// do not need retry, peer will deactive automatically
-		if (circ->ewfd_padding_rt->padding_slots[active_slot]->peer_state == EWFD_PEER_WORK) {
-			return notify_peer_units_states(circ->ewfd_padding_rt, EWFD_PEER_PAUSE);
+		if (ewfd_rt->padding_slots[active_slot]->peer_state == EWFD_PEER_WORK) {
+			return notify_peer_units_states(ewfd_rt, EWFD_PEER_PAUSE);
 		}
 	} else {
 		EWFD_LOG("ERROR: invalid state: %d", state);
