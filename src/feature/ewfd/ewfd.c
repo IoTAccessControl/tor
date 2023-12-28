@@ -265,7 +265,7 @@ static void on_padding_queue_tick(periodic_timer_t *timer, void *data) {
 			}
 			circuit_t * cur_circ = (circuit_t *) cur_pkt->on_circt;
 			if (cur_circ && cur_circ->ewfd_padding_rt) {
-				ewfd_padding_op(EWFD_OP_DUMMY_PACKET, (circuit_t *) cur_pkt->on_circt, 0);
+				ewfd_padding_op(EWFD_OP_DUMMY_PACKET, cur_circ, 0);
 				pkt_num++;
 				ewfd_framework_instance->all_pkt++;
 				last_pkt_ti = cur_pkt->insert_ti;

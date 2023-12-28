@@ -350,6 +350,11 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay) {
 	tor_assert(circ->ewfd_padding_rt);
 	int slot = circ->ewfd_padding_rt->padding_unit_ctx.active_slot;
+	if (circ->ewfd_padding_rt->padding_slots[slot] == NULL) {
+		// circ中的padding unit已经被release了
+		return false;
+	}
+	tor_assert(circ->ewfd_padding_rt->padding_slots[slot]->conf);
 	int hopnum = circ->ewfd_padding_rt->padding_slots[slot]->conf->target_hopnum;
 	if (op == EWFD_OP_DELAY_PACKET) {
 		EWFD_LOG("WARN: OP Delay is not impl");
