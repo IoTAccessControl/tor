@@ -194,8 +194,7 @@ static void on_padding_unit_tick(periodic_timer_t *timer, void *data) {
 }
 
 void remove_remain_dummy_packets(uintptr_t on_circ) {
-	// tor is free
-	if (ewfd_framework_instance == NULL) {
+	if (ewfd_framework_instance == NULL) { 	// tor is free
 		return;
 	}
 	ewfd_packet_queue_st *queue = (ewfd_packet_queue_st *) ewfd_framework_instance->dummy_packet_queue;
