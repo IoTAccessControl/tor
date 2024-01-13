@@ -158,6 +158,12 @@ void circuitmux_mark_destroyed_circids_usable(circuitmux_t *cmux,
 MOCK_DECL(int, circuitmux_compare_muxes,
           (circuitmux_t *cmux_1, circuitmux_t *cmux_2));
 
+/* Dump cmux info for debug */
+void circuitmux_show_info(circuitmux_t *cmux);
+
+void circuitmux_make_circuit_active(circuitmux_t *cmux, circuit_t *circ);
+void circuitmux_make_circuit_inactive(circuitmux_t *cmux, circuit_t *circ);
+
 #ifdef CIRCUITMUX_PRIVATE
 
 #include "core/or/destroy_cell_queue_st.h"

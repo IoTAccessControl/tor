@@ -13,7 +13,7 @@ uint64_t ewfd_default(struct ewfd_circ_status_t *status) {
 
 SEC("ewfd/front/padding/init")
 uint64_t ewfd_init(void *ewfd_unit) {
-	log_print("[ebpf] ewfd_init: %d\n", __LINE__);
+	log_print("-ewfd_front_init: %d\n", __LINE__);
 	ebpf_init_data_stream((uint64_t) ewfd_unit, FRONT_DATA_STREAM_ID, "efwd/front/v0");
 	return 0;
 }
@@ -21,7 +21,7 @@ uint64_t ewfd_init(void *ewfd_unit) {
 
 SEC("ewfd/front/padding/tick")
 uint64_t ewfd_tick(struct ewfd_circ_status_t *ewfd_status) {
-	log_print("[ebpf] ewfd_tick: %d\n", __LINE__);
+	log_print("[ebpf] ewfd_front_tick: %d\n", __LINE__);
 	uint64_t ret = (uint64_t) 1 << 32;
 
 	uint64_t ewfd_unit = ewfd_status->ewfd_unit;

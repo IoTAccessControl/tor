@@ -64,10 +64,8 @@ const char *ewfd_peer_state_str[] = {
 
 
 static void ewfd_init_runtime(circuit_t *circ);
-static int ewfd_release_runtime(circuit_t *circ);
 
 // padding unit的内存由circ管理，在circ关闭时一起关
-static int padding_units_num = 0;
 static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_conf_st *conf);
 static void free_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_unit_st *unit);
 static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint8_t unit_uuid, bool replace);
@@ -108,15 +106,9 @@ static void halt_ewfd_padding_ticker(ewfd_padding_runtime_st *ewfd_rt);
 static bool notify_peer_units_states(ewfd_padding_runtime_st *ewfd_rt, int state);
 static void trigger_efwd_schedule_ticker(tor_timer_t *timer, void *args, const struct monotime_t *time);
 static void trigger_efwd_padding_ticker(tor_timer_t *timer, void *args, const struct monotime_t *time);
-// static int ewfd_padding_on_tick(circuit_t *circ);
-// static int ewfd_padding_client_to_or(circuit_t *circ, uint8_t relay_command);
-// static int ewfd_padding_or_to_client(circuit_t *circ);
-// static int ewfd_padding_op_dummy_packet(circuit_t *circ);
-// static int ewfd_padding_op_delay_packet(circuit_t *circ);
-
 
 const char *padding_state_to_str(uint8_t state) {
-	if (state >= 0 && state < EWFD_PEER_STATE_MAX) {
+	if (state < EWFD_PEER_STATE_MAX) {
 		return ewfd_peer_state_str[state];
 	}
 	return "UNKNOWN";
@@ -205,23 +197,50 @@ ewfd_padding_runtime_st* ewfd_get_runtime_on_circ(circuit_t *circ) {
 	return NULL;
 }
 
-void free_all_ewfd_units_on_circ(circuit_t *circ) {
-	int free_num = 0;
-	int all_num = 0;
-	int remain_padding = 0;
-	if (circ->ewfd_padding_rt != NULL) {
-		all_num = circ->ewfd_padding_rt->last_unit_idx;
-		free_num = ewfd_release_runtime(circ);
-		remain_padding = all_num - free_num;
-		EWFD_LOG("Free %d/%d eWFD units on circ: %u remain: %d", free_num, 
-			all_num, ewfd_get_circuit_id(circ), remain_padding);
+
+bool is_valid_circuit(uintptr_t on_circ) {
+	tor_assert(on_circ);
+	circuit_t *circ = (circuit_t *) on_circ;
+	return circ->magic == ORIGIN_CIRCUIT_MAGIC || circ->magic == OR_CIRCUIT_MAGIC;
+}
+
+/* 这里周期有bug
+在circuit释放之后，queue里面仍然存在packet
+*/
+void free_ewfd_runtime_on_circ(circuit_t *circ) {
+	if (circ->ewfd_padding_rt == NULL) {
+		return;
 	}
+	on_ewfd_runtime_destory(circ);
+
+	for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
+		if (circ->ewfd_padding_rt->schedule_slots[i] != NULL) {
+			free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->schedule_slots[i]);
+			circ->ewfd_padding_rt->schedule_slots[i] = NULL;
+		}
+	}
+	for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
+		if (circ->ewfd_padding_rt->padding_slots[i] != NULL) {
+			free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->padding_slots[i]);
+			circ->ewfd_padding_rt->padding_slots[i] = NULL;
+		}
+	}
+
+	tor_assert(circ->ewfd_padding_rt->units_num == 0);
+
+	// free timer
+	ewfd_free_ticker(&circ->ewfd_padding_rt->padding_unit_ctx.ticker);
+	ewfd_free_ticker(&circ->ewfd_padding_rt->schedule_unit_ctx.ticker);
+
+	EWFD_LOG("ewfd_padding_rt free circ: %u", ewfd_get_circuit_id(circ));
+
+	tor_free(circ->ewfd_padding_rt);
 }
 
 // remove packet on queue
 void on_ewfd_runtime_destory(circuit_t *circ) {
 	// EWFD_LOG("----------------------------------on_ewfd_runtime_destory: %u", ewfd_get_circuit_id(circ));
-	remove_remain_dummy_packets((uintptr_t) circ);
+	ewfd_remove_remain_events((uintptr_t) circ);
 	circ->ewfd_padding_rt->on_circ = NULL;
 }
 
@@ -357,35 +376,7 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 	return 0;
 }
 
-/** 实现padding操作
-*/
-bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay) {
-	ewfd_padding_runtime_st *ewfd_rt = ewfd_get_runtime_on_circ(circ);
-	if (ewfd_rt == NULL) {
-		return false;
-	}
-
-	int slot = ewfd_rt->padding_unit_ctx.active_slot;
-	int hopnum = ewfd_rt->padding_slots[slot]->conf->target_hopnum;
-	if (op == EWFD_OP_DELAY_PACKET) {
-		EWFD_LOG("WARN: OP Delay is not impl");
-		return false;
-	} else if (op == EWFD_OP_DUMMY_PACKET) {
-		crypt_path_t *target_hop = NULL;
-		if (CIRCUIT_IS_ORIGIN(circ)) {
-			target_hop = circuit_get_cpath_hop(TO_ORIGIN_CIRCUIT(circ), hopnum);
-			if (target_hop == NULL) {
-				EWFD_LOG("ERROD: Can't find target hop for padding: %d", hopnum);
-				return false;
-			}
-		}
-		rep_hist_padding_count_write(PADDING_TYPE_DROP);
-		return relay_send_command_from_edge(0, circ, RELAY_COMMAND_DROP, NULL, 0, target_hop);
-	}
-	return false;
-}
-
-bool ewfd_schedule_op(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args) {
+bool ewfd_schedule_alter_unit(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args) {
 	// ewfd_padding_unit_st *unit = ewfd_get_unit_on_circ_by_uuid(circ, target_unit);
 	ewfd_padding_runtime_st *ewfd_rt = ewfd_get_runtime_on_circ(circ);
 	if (ewfd_rt == NULL) {
@@ -443,18 +434,18 @@ int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin
 	// Client send BEGIN -> start relay's padding unit
 	if (is_origin && relay_command == RELAY_COMMAND_BEGIN) {
 		reset_ewfd_padding_unit_on_circ(circ, EWFD_PEER_WORK);
-		EWFD_LOG("trigger_ewfd_units_on_circ [%d] active self/relay padding unit", gid);
+		EWFD_TEMP_LOG("trigger_ewfd_units_on_circ [%d] active self/relay padding unit", gid);
 	}
 
 	// Client receive END -> stop relay's padding unit
 	if (is_origin && !is_send && relay_command == RELAY_COMMAND_END) {
 		reset_ewfd_padding_unit_on_circ(circ, EWFD_PEER_PAUSE);
-		EWFD_LOG("trigger_ewfd_units_on_circ [%d] deactive self/relay padding", gid);
+		EWFD_TEMP_LOG("trigger_ewfd_units_on_circ [%d] deactive self/relay padding", gid);
 	} 
 	
 	// Relay Node UNRECOGNISED commond
 	// do nothing
-	EWFD_LOG("trigger_ewfd_units_on_circ [%u] is_send: %d edge: %d %s", gid, is_send, is_origin, show_relay_command(relay_command));
+	EWFD_TEMP_LOG("trigger_ewfd_units_on_circ [%u] is_send: %d edge: %d %s", gid, is_send, is_origin, show_relay_command(relay_command));
 
 	// step-2: update packet status
 	// if (relay_command != RELAY_COMMAND_DROP) {
@@ -499,42 +490,6 @@ static void ewfd_init_runtime(circuit_t *circ) {
 	start_ewfd_padding_framework();
 }
 
-/* 这里周期有bug
-在circuit释放之后，queue里面仍然存在packet
-*/
-static int ewfd_release_runtime(circuit_t *circ) {
-	int free_num = 0;
-	if (circ->ewfd_padding_rt != NULL) {
-		on_ewfd_runtime_destory(circ);
-
-		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
-			if (circ->ewfd_padding_rt->schedule_slots[i] != NULL) {
-				free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->schedule_slots[i]);
-				circ->ewfd_padding_rt->schedule_slots[i] = NULL;
-				free_num++;
-			}
-		}
-		for (int i = 0; i < MAX_EWFD_UNITS_ON_CIRC; i++) {
-			if (circ->ewfd_padding_rt->padding_slots[i] != NULL) {
-				free_ewfd_padding_unit(circ->ewfd_padding_rt, circ->ewfd_padding_rt->padding_slots[i]);
-				circ->ewfd_padding_rt->padding_slots[i] = NULL;
-				free_num++;
-			}
-		}
-
-		assert(circ->ewfd_padding_rt->units_num == 0);
-
-		// free timer
-		ewfd_free_ticker(&circ->ewfd_padding_rt->padding_unit_ctx.ticker);
-		ewfd_free_ticker(&circ->ewfd_padding_rt->schedule_unit_ctx.ticker);
-
-		EWFD_LOG("ewfd_release_runtime circ: %u", ewfd_get_circuit_id(circ));
-
-		tor_free(circ->ewfd_padding_rt);
-	}
-	return free_num;
-}
-
 static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_conf_st *conf) {
 	ewfd_padding_unit_st *unit = tor_malloc_zero(sizeof(ewfd_padding_unit_st));
 	unit->conf = conf;
@@ -548,12 +503,10 @@ static ewfd_padding_unit_st* new_ewfd_padding_unit(ewfd_padding_runtime_st *cur_
 	}
 	unit->unit_version = cur_rt->last_unit_idx;
 	
-	padding_units_num++;
 	return unit;
 }
 
 static void free_ewfd_padding_unit(ewfd_padding_runtime_st *cur_rt, ewfd_padding_unit_st *unit) {
-	padding_units_num--;
 	cur_rt->units_num--;
 	free_ewfd_unit(unit->ewfd_unit);
 	tor_free(unit);
@@ -632,10 +585,12 @@ static ewfd_padding_unit_st* ewfd_add_unit_to_circ_by_uuid(circuit_t *circ, uint
 		circ->ewfd_padding_rt->schedule_slots[slot] = cur_unit;
 	}
 
+	const char *ut = target_conf->unit_type == EWFD_UNIT_PADDING ? "Padding" : "Schedule";
+
 	if (CIRCUIT_IS_ORIGIN(circ)) {
-		EWFD_LOG("Unit: %u is added to client/origin_circ: %d slot: %d", unit_uuid, TO_ORIGIN_CIRCUIT(circ)->global_identifier, slot);
+		EWFD_LOG("%s Unit: %u is added to client/origin_circ: %d slot: %d", ut, unit_uuid, TO_ORIGIN_CIRCUIT(circ)->global_identifier, slot);
 	} else {
-		EWFD_LOG("Unit: %u is added to relay/or_circ peer: %s slot: %d", unit_uuid, ewfd_get_circuit_info(circ), slot);
+		EWFD_LOG("%s Unit: %u is added to relay/or_circ peer: %s slot: %d", ut, unit_uuid, ewfd_get_circuit_info(circ), slot);
 	}
 
 	return cur_unit;
@@ -755,10 +710,6 @@ static bool ewfd_peer_is_created(int peer_state) {
 	return peer_state >= EWFD_PEER_CREATE && peer_state < EWFD_PEER_CLEAR;
 }
 
-static int ewfd_padding_op_delay_packet(circuit_t *circ) {
-	return 0;
-}
-
 /** 暂时 开启和停止都用 CIRCPAD_COMMAND_EWFD_STATE 命令。
 1. 在begin的时候 active 
 2. 通知peer enable
@@ -835,18 +786,18 @@ static bool start_efwd_schedule_ticker(circuit_t *circ) {
 	ewfd_init_ticker(&ewfd_rt->schedule_unit_ctx.ticker, trigger_efwd_schedule_ticker, circ);
 
 	// uint32_t next_tick = ewfd_rt->schedule_slots[slot]->conf->tick_interval;
-	uint32_t next_tick = 1; // 第一次立刻触发
+	uint64_t next_tick = 1; // 第一次立刻触发
 	ewfd_schedule_ticker(ewfd_rt->schedule_unit_ctx.ticker, next_tick);
 	
 	ewfd_rt->schedule_unit_ctx.is_enable = true;
-	ewfd_rt->schedule_unit_ctx.padding_start_ti = (uint32_t) monotime_absolute_msec();
+	ewfd_rt->schedule_unit_ctx.padding_start_ti = monotime_absolute_msec();
 	ewfd_rt->circ_status.on_circ = (uintptr_t) ewfd_rt->on_circ;
 	ewfd_rt->schedule_unit_ctx.next_tick = 0;
 	ewfd_rt->schedule_unit_ctx.last_tick_ti = ewfd_rt->schedule_unit_ctx.padding_start_ti + next_tick;
 	
 	// mi->is_padding_timer_scheduled = 1;
 #if 0
-	EWFD_LOG("[schedule-tick-1] %s timer is added: %u next: %u", ewfd_rt->circ_tag, 
+	EWFD_LOG("[schedule-tick-1] %s timer is added: %lu next: %lu", ewfd_rt->circ_tag, 
 		next_tick, ewfd_rt->padding_unit_ctx.padding_start_ti);
 #endif
 	return true;
@@ -868,7 +819,7 @@ static bool start_efwd_padding_ticker(circuit_t *circ) {
 
 	ewfd_schedule_ticker(ewfd_rt->padding_unit_ctx.ticker, next_tick);
 	
-	uint32_t now_ti = (uint32_t) monotime_absolute_msec() + next_tick;
+	uint64_t now_ti = monotime_absolute_msec() + next_tick;
 	ewfd_rt->padding_unit_ctx.is_enable = true;
 	ewfd_rt->padding_unit_ctx.padding_start_ti = now_ti;
 	ewfd_rt->circ_status.padding_start_ti = now_ti;
@@ -910,10 +861,10 @@ static void trigger_efwd_schedule_ticker(tor_timer_t *timer, void *args, const s
 	// handle schedule tick
 	run_ewfd_schedule_vm(ewfd_rt);
 
-	uint32_t now_ti = (uint32_t) monotime_absolute_msec();
-	uint32_t detla = (uint32_t)(now_ti - ewfd_rt->schedule_unit_ctx.last_tick_ti);
+	uint64_t now_ti = monotime_absolute_msec();
+	uint64_t detla = now_ti - ewfd_rt->schedule_unit_ctx.last_tick_ti;
 
-	uint32_t next_tick = ewfd_rt->schedule_unit_ctx.next_tick;
+	uint64_t next_tick = ewfd_rt->schedule_unit_ctx.next_tick;
 	// schedule again
 	if (next_tick != 0) {
 		// struct timeval timeout;
@@ -926,7 +877,7 @@ static void trigger_efwd_schedule_ticker(tor_timer_t *timer, void *args, const s
 // 每个circuit每秒2次
 #if 0
 	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
-	EWFD_LOG("[schedule-tick-n] [%u] want: %u actual: %u delta: %u next: %u", gid, 
+	EWFD_LOG("[schedule-tick-n] [%u] want: %lu actual: %lu delta: %lu next: %lu", gid, 
 		ewfd_rt->schedule_unit_ctx.last_tick_ti, now_ti, detla, 
 		ewfd_rt->schedule_unit_ctx.last_tick_ti + next_tick);
 #endif
@@ -942,10 +893,10 @@ static void trigger_efwd_padding_ticker(tor_timer_t *timer, void *args, const st
 	// handle padding tick
 	run_ewfd_padding_vm(ewfd_rt);
 
-	uint32_t now_ti = (uint32_t) monotime_absolute_msec();
-	uint32_t detla = (uint32_t)(now_ti - ewfd_rt->padding_unit_ctx.last_tick_ti);
+	uint64_t now_ti =  monotime_absolute_msec();
+	uint64_t detla = (now_ti - ewfd_rt->padding_unit_ctx.last_tick_ti);
 	
-	uint32_t next_tick = ewfd_rt->padding_unit_ctx.next_tick;
+	uint64_t next_tick = ewfd_rt->padding_unit_ctx.next_tick;
 	// schedule again
 	if (next_tick != 0) {
 		ewfd_schedule_ticker(ewfd_rt->padding_unit_ctx.ticker, next_tick);
@@ -953,7 +904,7 @@ static void trigger_efwd_padding_ticker(tor_timer_t *timer, void *args, const st
 
 #if 0
 	uint32_t gid = ewfd_get_circuit_id(ewfd_rt->on_circ);
-	EWFD_LOG("[padding-tick-n] [%u] want: %u actual: %u delta: %u next: %u", gid,
+	EWFD_LOG("[padding-tick-n] [%u] want: %lu actual: %lu delta: %lu next: %lu", gid,
 		ewfd_rt->padding_unit_ctx.last_tick_ti, now_ti, detla, 
 		ewfd_rt->padding_unit_ctx.last_tick_ti + next_tick);
 #endif

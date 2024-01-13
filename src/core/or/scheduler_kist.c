@@ -8,6 +8,9 @@
 
 #define SCHEDULER_KIST_PRIVATE
 
+#define EWFD_USE_TEMP_LOG
+#include "feature/ewfd/debug.h"
+
 #include "core/or/or.h"
 #include "lib/buf/buffers.h"
 #include "app/config/config.h"
@@ -674,6 +677,7 @@ kist_scheduler_run(void)
                  channel_state_to_string(chan->state),
                  get_scheduler_state_string(chan->scheduler_state));
         scheduler_set_channel_state(chan, SCHED_CHAN_WAITING_FOR_CELLS);
+        EWFD_TEMP_LOG("[scheduler] set chan wait chan: %lu", chan->global_identifier);
         continue;
       }
     }

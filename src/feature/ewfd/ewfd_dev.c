@@ -1,8 +1,13 @@
-#include "feature/ewfd/ewfd_dev.h"
+#include "core/or/or.h"
+#define EWFD_USE_TEMP_LOG
 #include "feature/ewfd/debug.h"
+
+#include "feature/ewfd/ewfd_dev.h"
+#include "feature/ewfd/circuit_padding.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include "feature/ewfd/ewfd_rt.h"
+#include "feature/ewfd/ewfd_op.h"
 
 typedef struct {
 	uint32_t *buffer;
@@ -89,9 +94,7 @@ static int front_timeline[] = {
 	2080, 2113, 2141, 2152, 2176, 2180, 2242, 2323, 2385, 2425, 2513, 2519, 2547, 2602, 2615, 2662, 2919, 3097, 3180, 3654,
 };
 
-extern int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti);
-
-static void dev_front_init() {
+static void dev_front_init(void) {
 	timeline_default = create_ring_buffer(sizeof(front_timeline) / sizeof(int) + 1);
 	int pkt = 5;
 	pkt = sizeof(front_timeline) / sizeof(int);
@@ -150,7 +153,7 @@ uint64_t ewfd_default_schedule_unit(ewfd_circ_status_st *ewfd_status) {
 
 	// EWFD_LOG("schedule_unit now_ti: %u, last_ti: %u", now_ti, last_ti);
 
-	const uint32_t max_idle_ti = 2000; // 1s
+	const uint32_t max_idle_ti = 2000; // 2s
 	if (now_ti > last_ti + max_idle_ti) {
 		uint32_t args = (ewfd_status->cur_padding_unit << 16) | EWFD_PEER_PAUSE;
 		return (uint64_t) EWFD_SCHEDULE_RESET_UNIT << 32 | args;
@@ -159,13 +162,68 @@ uint64_t ewfd_default_schedule_unit(ewfd_circ_status_st *ewfd_status) {
 	return ret;
 }
 
-uint64_t ewfd_default_init_unit(void) {
-	// init current padding unit
-	dev_front_init();
+// ---------------------------
+// c gan unit
+// ---------------------------
+
+static uint32_t gan_brust_gap_ms[] = {
+	437, 186, 88, 13, 4, 25, 159, 28, 32, 215, 13, 6, 26, 
+	176, 33, 21, 13, 17, 102, 477, 367, 91, 178, 98, 
+	13, 11, 349, 72, 31, 23, 19, 10, 81, 47, 
+	189, 16, 55, 5, 9, 32, 62, 22, 129, 170
+};
+
+static uint32_t gan_flow_pkts[] = {
+	2, 13, 2, 2, 7, 3, 4, 2, 21, 2, 9, 4, 2, 4,
+};
+
+static void dev_gan_init(void) {
+	EWFD_LOG("dev_gan_init");
+}
+
+static int add_delay_pkt = 100;
+
+static uint64_t dev_gan_on_tick(ewfd_circ_status_st *ewfd_status) {
+	// EWFD_LOG("on gan tick");
+	// 1s一个delay包，延时50ms
+	uint64_t now_ti = ewfd_status->now_ti;
+	uint64_t last_ti = ewfd_status->last_padding_ti;
+	uint64_t gap_ms = 200;
+	if (last_ti + gap_ms < now_ti && add_delay_pkt > 0) {
+		uint64_t send_ti = now_ti;
+		send_ti += 2000; // delay 2s
+		EWFD_TEMP_LOG("----------------gan add delay packet last_ti: %lu cur_ti: %lu trigger-ti: %lu", last_ti, now_ti, send_ti);
+		ewfd_add_delay_packet(ewfd_status->on_circ, now_ti, send_ti, 10);
+
+		// 直接发送drop包，测试功能
+		// ewfd_add_dummy_packet(ewfd_status->on_circ, send_ti);
+		// ewfd_paddding_op_dummy_impl((circuit_t *) ewfd_status->on_circ);
+		ewfd_status->last_padding_ti = now_ti;
+		--add_delay_pkt;
+	}
+
 	return 0;
 }
 
+/* 当前测试的防御
+*/
+// #define USE_DEV_FRONT
+#define USE_DEV_GAN
+
+uint64_t ewfd_default_init_unit(void) {
+	// init current padding unit
+#if defined (USE_DEV_FRONT)
+	dev_front_init();
+#elif defined (USE_DEV_GAN)
+	dev_gan_init();
+#endif
+	return 0;
+}
 
 uint64_t ewfd_default_padding_unit(ewfd_circ_status_st *ewfd_status) {
+#if defined (USE_DEV_FRONT)
 	return dev_front_on_tick(ewfd_status);
+#elif defined (USE_DEV_GAN)
+	return dev_gan_on_tick(ewfd_status);
+#endif
 }

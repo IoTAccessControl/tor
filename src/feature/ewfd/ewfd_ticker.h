@@ -12,7 +12,7 @@ void ewfd_init_ticker(tor_timer_t **ticker, timer_cb_fn_t cb, void *arg);
 
 void ewfd_remove_ticker(tor_timer_t **ticker);
 
-void ewfd_schedule_ticker(tor_timer_t *ticker, uint32_t next_ti_ms);
+void ewfd_schedule_ticker(tor_timer_t *ticker, uint64_t next_ti_ms);
 
 void ewfd_free_ticker(tor_timer_t **ticker);
 

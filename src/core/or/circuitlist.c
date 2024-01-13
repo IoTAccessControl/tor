@@ -1262,7 +1262,7 @@ circuit_free_(circuit_t *circ)
   circpad_circuit_free_all_machineinfos(circ);
 
   /* Free eWFD Padding Units */
-  free_all_ewfd_units_on_circ(circ);
+  free_ewfd_runtime_on_circ(circ);
 
   /* Clear all dangling handle references. */
   circuit_handles_clear(circ);

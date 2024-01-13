@@ -4,7 +4,7 @@
 #include <bits/types/struct_timeval.h>
 #include "feature/ewfd/circuit_padding.h"
 
-// #define USE_TEMP_LOG
+// #define EWFD_USE_TEMP_LOG
 #include "feature/ewfd/debug.h"
 
 int total_ewfd_timer = 0;
@@ -31,7 +31,7 @@ void ewfd_remove_ticker(tor_timer_t **ticker) {
 	}
 }
 
-void ewfd_schedule_ticker(tor_timer_t *ticker, uint32_t next_ti_ms) {
+void ewfd_schedule_ticker(tor_timer_t *ticker, uint64_t next_ti_ms) {
 	struct timeval timeout;
 	timeout.tv_sec = next_ti_ms * 1000 / TOR_USEC_PER_SEC;
 	timeout.tv_usec = (next_ti_ms * 1000) % TOR_USEC_PER_SEC;

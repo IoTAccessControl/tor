@@ -3,12 +3,12 @@
 #include "core/or/or.h"
 #include "feature/ewfd/circuit_padding.h"
 #include "feature/ewfd/debug.h"
-#include "feature/ewfd/ewfd_helper.h"
 #include "lib/ebpf/ebpf_vm.h"
 #include "lib/ebpf/libebpf.h"
 #include "lib/ebpf/ewfd-defense/src/ewfd_api.h"
 #include "lib/log/util_bug.h"
 #include "lib/malloc/malloc.h"
+#include "feature/ewfd/ewfd_op.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -17,8 +17,6 @@
 
 // extern int ebpf_exec(const struct ebpf_vm* vm, void* mem, size_t mem_len,
 // uint64_t* bpf_return_value);
-
-extern int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti);
 
 /*
 log:
@@ -30,7 +28,7 @@ static long helper_ebpf_helper_log_print_id = 1;
 static long helper_test_ewfd_add_dummy_packet_id = 6;
 
 static void add_ewfd_tor_helpers(struct ebpf_vm *vm);
-static uint64_t helper_ebpf_log_print(const char *fmt, uint32_t fmt_size, ...);
+static uint64_t helper_ebpf_log_print(const char *fmt, uint32_t fmt_size, ...) __attribute__((format(printf, 1, 3)));
 static uint64_t helper_ewfd_add_dummy_packet(uint64_t ptr, uint64_t tick);
 
 ewfd_unit_st *init_ewfd_unit(struct ewfd_padding_conf_t *conf) {

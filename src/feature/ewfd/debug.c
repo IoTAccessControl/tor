@@ -72,7 +72,7 @@ const char *show_relay_command(uint8_t command) {
 void ewfd_statistic_on_cell_event(circuit_t *circ, bool is_send, uint8_t command) {
 	bool is_edge = CIRCUIT_IS_ORIGIN(circ);
 	if (is_send) {
-		// EWFD_STAT_LOG("[STATISTICS] [Send] [%u] %s", ewfd_get_circuit_id(circ), show_relay_command(command));
+		EWFD_STAT_LOG("[STATISTICS] [Send] [%u] %s", ewfd_get_circuit_id(circ), show_relay_command(command));
 	} else { // receive
 		if (is_edge && (command == RELAY_COMMAND_BEGIN 
 			|| command == RELAY_COMMAND_DATA
@@ -163,4 +163,27 @@ uint32_t ewfd_get_circuit_id(circuit_t *circ) {
 	} else {
 		return TO_OR_CIRCUIT(circ)->p_circ_id;
 	}
+}
+
+void dump_pcell(packed_cell_t *cell) {
+	/*
+	  char *dest = dst->body;
+	if (wide_circ_ids) {
+		set_uint32(dest, htonl(src->circ_id));
+		dest += 4;
+	} else {
+		memset(dest+CELL_MAX_NETWORK_SIZE-2, 0, 2);
+		set_uint16(dest, htons(src->circ_id));
+		dest += 2;
+	}
+ 	 set_uint8(dest, src->command);
+  	memcpy(dest+1, src->payload, CELL_PAYLOAD_SIZE);
+	*/
+	char *pos = cell->body;
+	uint32_t cid = ntohl(get_uint32(pos));
+	pos += 4;
+	uint8_t cmd = get_uint8(pos);
+	pos += 1;
+	relay_header_t *rh = (relay_header_t *)pos;
+	EWFD_LOG("cell: cid: %u cmd: %s len: %d", cid, show_relay_command(cmd), rh->length);
 }

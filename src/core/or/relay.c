@@ -45,7 +45,11 @@
  * types of relay cells, launching requests or transmitting data as needed.
  **/
 
+#include "core/or/command.h"
 #define RELAY_PRIVATE
+
+#define EWFD_USE_TEMP_LOG
+
 #include "core/or/or.h"
 #include "feature/client/addressmap.h"
 #include "lib/err/backtrace.h"
@@ -100,9 +104,9 @@
 #include "core/or/congestion_control_common.h"
 #include "core/or/congestion_control_flow.h"
 #include "feature/ewfd/utils.h"
-#include "feature/ewfd/debug.h"
 #include "lib/log/util_bug.h"
 #include <stdint.h>
+#include "feature/ewfd/debug.h"
 
 static edge_connection_t *relay_lookup_conn(circuit_t *circ, cell_t *cell,
                                             cell_direction_t cell_direction,
@@ -1631,8 +1635,8 @@ handle_relay_cell_command(cell_t *cell, circuit_t *circ,
 
   tor_assert(rh);
 
-  EWFD_LOG("[receive cell] command: [%s] %s", relay_command_to_string(rh->command), 
-    ewfd_get_circuit_info(circ));
+  EWFD_LOG("[receive cell] command: [%s] %s on stream: %d", relay_command_to_string(rh->command), 
+    ewfd_get_circuit_info(circ), rh->stream_id);
 
   /* First pass the cell to the circuit padding subsystem, in case it's a
    * padding cell or circuit that should be handled there. */
@@ -2589,7 +2593,7 @@ packed_cell_free_unchecked(packed_cell_t *cell)
 }
 
 /** Allocate and return a new packed_cell_t. */
-STATIC packed_cell_t *
+packed_cell_t *
 packed_cell_new(void)
 {
   ++total_cells_allocated;
@@ -3010,10 +3014,20 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
   tor_assert(chan->cmux);
   cmux = chan->cmux;
 
+  /* nflushed = 0时，没有写成功，情况如下： （需要delay不能发包, 或者真实包不够需要补充dummy包）
+  1. 出现wait event，啥包都没发
+  2. 出现dummy packet，来凑数，当前包数量不够。
+
+  为了防止多个轮次都被dummy包占用，阻塞其他circ，因此每次发送n_dummy_pkt个drop，就让出loop
+  */
+  int n_dummy_pkt = 3;
+
   /* Main loop: pick a circuit, send a cell, update the cmux */
-  while (n_flushed < max) {
+  while (n_flushed < max && n_dummy_pkt > 0) {
     circ = circuitmux_get_first_active_circuit(cmux, &destroy_queue);
     if (destroy_queue) {
+      EWFD_TEMP_LOG("desotry_queue----------------------- q-len: %d circ: %u", destroy_queue->n, circ == NULL ? 0 : ewfd_get_circuit_id(circ));
+
       destroy_cell_t *dcell;
       /* this code is duplicated from some of the logic below. Ugly! XXXX */
       /* If we are given a destroy_queue here, then it is required to be
@@ -3038,7 +3052,10 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
       continue;
     }
     /* If it returns NULL, no cells left to send */
-    if (!circ) break;
+    if (!circ) {
+      EWFD_TEMP_LOG("[CHANNEL] li: %d no acitive circ", __LINE__);
+      break;
+    }
 
     if (circ->n_chan == chan) {
       queue = &circ->n_chan_cells;
@@ -3049,6 +3066,8 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
       queue = &TO_OR_CIRCUIT(circ)->p_chan_cells;
       streams_blocked = circ->streams_blocked_on_p_chan;
     }
+    EWFD_TEMP_LOG("[CHANNEL] li: %d circ: %u q-len: %d", __LINE__, ewfd_get_circuit_id(circ), queue->n);
+    // circuitmux_show_info(cmux);
 
     /* Circuitmux told us this was active, so it should have cells */
     if (/*BUG(*/ queue->n == 0 /*)*/) {
@@ -3067,7 +3086,33 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      * selection, so we have to loop around for another even if this circuit
      * has more than one.
      */
-    cell = cell_queue_pop(queue);
+    uint8_t n_cell = 1;
+
+    #define ENABLE_EWFD_DELAY
+
+    #if !defined (ENABLE_EWFD_DELAY)
+      // 原始代码
+      cell = cell_queue_pop(queue);
+    #else 
+      extern packed_cell_t * ewfd_cell_queue_pop(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
+      cell = ewfd_cell_queue_pop(queue, chan->wide_circ_ids, &n_cell);
+      EWFD_TEMP_LOG("[CHANNEL] li: %d circ: %u n_cell %d q-len: %d", __LINE__, ewfd_get_circuit_id(circ), n_cell, queue->n);
+    #endif
+
+    /* 当前队列没有可发送的包，需要等待
+    */
+    if (cell == NULL) { // update circuit status
+      // 基于事件唤醒，需要手动唤醒
+      circuitmux_make_circuit_inactive(cmux, circ);
+
+      #if 0
+      // 加入到active_queue队尾, 保持轮询，性能开销过大
+      circuitmux_make_circuit_active(cmux, circ);
+      ++n_dummy_pkt;
+      #endif 
+
+      continue;
+    }
 
     /* Calculate the exact time that this cell has spent in the queue. */
     if (get_options()->CellStatistics ||
@@ -3122,14 +3167,25 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      */
 
     /* Update the counter */
-    ++n_flushed;
+    n_flushed += n_cell;
 
     /*
      * Now update the cmux; tell it we've just sent a cell, and how many
      * we have left.
      */
-    circuitmux_notify_xmit_cells(cmux, circ, 1);
+    circuitmux_notify_xmit_cells(cmux, circ, n_cell);
     circuitmux_set_num_cells(cmux, circ, queue->n);
+
+    // 当前真实包数量不够，发送的是dummy包，
+    // 为了避免一次性发送的dummy包过多，因此触发拥塞控制，需要等待有没有别的包，放到active队列的最后面
+    if (n_cell == 0) {
+      circuitmux_make_circuit_inactive(cmux, circ);
+      circuitmux_make_circuit_active(cmux, circ);
+
+      // channel_more_to_flush(chan)
+      ++n_dummy_pkt;
+    }
+    
     if (queue->n == 0)
       log_debug(LD_GENERAL, "Made a circuit inactive.");
 
@@ -3140,6 +3196,7 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
 
     /* If n_flushed < max still, loop around and pick another circuit */
   }
+  EWFD_TEMP_LOG("[CHANNEL] li: %d flushed: %d max %d", __LINE__, n_flushed, max);
 
   /* Okay, we're done sending now */
   return n_flushed;
@@ -3228,6 +3285,9 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
     streams_blocked = circ->streams_blocked_on_p_chan;
   }
 
+  EWFD_TEMP_LOG("send-cell append to queue circ: %u cell-cmd: %s stream: %d q-len: %d", ewfd_get_circuit_id(circ),
+    cell_command_to_string(cell->command), fromstream, queue->n + 1);
+
   if (PREDICT_UNLIKELY(queue->n >= max_circuit_cell_queue_size)) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "%s circuit has %d cells in its queue, maximum allowed is %d. "
@@ -3246,6 +3306,7 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
 
   /* Check and run the OOM if needed. */
   if (PREDICT_UNLIKELY(cell_queues_check_size())) {
+    EWFD_LOG("ERROR: append_cell trigger OOM and close circ: %u", ewfd_get_circuit_id(circ));
     /* We ran the OOM handler which might have closed this circuit. */
     if (circ->marked_for_close)
       return;

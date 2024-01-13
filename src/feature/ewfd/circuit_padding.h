@@ -1,6 +1,10 @@
 #ifndef EWFD_PADDING_H_
 #define EWFD_PADDING_H_
 
+/*
+Padding 协议，padding unit的启动和调度
+*/
+
 #include "core/or/or.h"
 #include "lib/evloop/timers.h"
 #include "trunnel/circpad_negotiation.h"
@@ -68,10 +72,10 @@ typedef struct ewfd_circ_status_t {
 	uint64_t ewfd_unit;
 	// __IN
 	// uint32_t last_delay_ti;
-	uint32_t padding_start_ti; // first padding init time
-	uint32_t last_padding_ti;  // previous padding unit exec time
-	uint32_t last_cell_ti;     // last cell send/receive time
-	uint32_t now_ti;
+	uint64_t padding_start_ti; // first padding init time
+	uint64_t last_padding_ti;  // previous padding unit exec time
+	uint64_t last_cell_ti;     // last cell send/receive time
+	uint64_t now_ti;
 	
 	uintptr_t on_circ;
 
@@ -84,7 +88,7 @@ typedef struct ewfd_circ_status_t {
 	uint8_t current_relay_cmd;
 
 	// __OUT 
-	uint32_t next_tick;
+	uint64_t next_tick;
 } __attribute__((packed, aligned(4))) ewfd_circ_status_st;
 
 // // 当前直接用函数：ewfd_padding_op
@@ -99,9 +103,9 @@ typedef struct ewfd_circ_status_t {
 typedef struct ewfd_unit_ctx_t {
 	uint8_t active_slot; // 同一时刻只能执行一种unit
 	bool is_enable;		 // timer is scheduled
-	uint32_t next_tick;  // fixed gap, 所有的时间单位都是ms
-	uint32_t last_tick_ti; // abusolute time of last tick
-	uint32_t padding_start_ti; // abusoluate time
+	uint64_t next_tick;  // fixed gap, 所有的时间单位都是ms
+	uint64_t last_tick_ti; // abusolute time of last tick
+	uint64_t padding_start_ti; // abusoluate time
 	uint32_t total_dummy_pkt;
 	uint32_t total_delay_pkt;
 	tor_timer_t *ticker;
@@ -132,17 +136,17 @@ int ewfd_handle_padding_negotiated(circuit_t *circ, circpad_negotiated_t *negoti
 // dispatch padding commands
 int add_ewfd_units_on_circ(circuit_t *circ);
 ewfd_padding_runtime_st* ewfd_get_runtime_on_circ(circuit_t *circ);
-void free_all_ewfd_units_on_circ(circuit_t *circ);
+void free_ewfd_runtime_on_circ(circuit_t *circ);
 void on_ewfd_runtime_destory(circuit_t *circ);
+
+bool is_valid_circuit(uintptr_t on_circ);
 
 uint8_t get_current_padding_unit_slot(ewfd_padding_runtime_st *ewfd_rt, uint8_t uuid);
 uint8_t get_current_padding_unit_uuid(ewfd_padding_runtime_st *ewfd_rt);
 
 int trigger_ewfd_units_on_circ(circuit_t *circ, bool is_send, bool toward_origin, uint8_t relay_command);
 
-bool ewfd_schedule_op(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args);
-
-bool ewfd_padding_op(int op, circuit_t *circ, uint32_t delay);
+bool ewfd_schedule_alter_unit(circuit_t *circ, uint8_t op, uint8_t target_unit, void *args);
 
 const char *padding_state_to_str(uint8_t state);
 

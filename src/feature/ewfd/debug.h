@@ -3,8 +3,8 @@
 
 #include "core/or/or.h"
 
-// #define EWFD_DEBUG // enable debug
-#define USE_EWFD_STATISTICS // enable state logs
+#define EWFD_DEBUG // enable debug
+// #define USE_EWFD_STATISTICS // enable state logs
 
 /*----------------------------------------------------------------------------
 * Debug Log
@@ -41,10 +41,10 @@ void ewfd_my_log_caller(const char *fn, const char *fi, int li, const char *form
 #endif	// USE_EWFD_STATISTICS
 
 /* 单文件中的临时调试log
-和 debug/stat log的区别是，需要在include "debug.h"之前 define USE_TEMP_LOG
+和 debug/stat log的区别是，需要在include "debug.h"之前 define EWFD_USE_TEMP_LOG
 见：tor-src/src/feature/ewfd/ewfd_ticker.c
 */
-#ifdef USE_TEMP_LOG
+#ifdef EWFD_USE_TEMP_LOG
 	#define EWFD_TEMP_LOG(args...) \
 		log_fn_(LOG_LAST_LEV, LD_GENERAL, __FUNCTION__, args)
 #else
@@ -64,5 +64,7 @@ uint32_t ewfd_get_circuit_id(circuit_t *circ);
 void ewfd_statistic_on_cell_event(circuit_t *circ, bool is_send, uint8_t command);
 
 const char *show_relay_command(uint8_t command);
+
+void dump_pcell(packed_cell_t *cell);
 
 #endif

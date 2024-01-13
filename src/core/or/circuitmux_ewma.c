@@ -283,6 +283,11 @@ ewma_notify_circ_active(circuitmux_t *cmux,
   pol = TO_EWMA_POL_DATA(pol_data);
   cdata = TO_EWMA_POL_CIRC_DATA(pol_circ_data);
 
+  if (cdata->cell_ewma.heap_index != -1) {
+    /* This circuit is already in the queue; remove it */
+    remove_cell_ewma(pol, &(cdata->cell_ewma));
+  }
+
   add_cell_ewma(pol, &(cdata->cell_ewma));
 }
 

@@ -81,7 +81,7 @@ ewfd_padding_conf_st* demo_get_front_schedule_unit_conf(void) {
 	schedule_unit->unit_uuid = 2;
 	schedule_unit->unit_type = EWFD_UNIT_SCHEDULE;
 	schedule_unit->target_hopnum = 2;
-	schedule_unit->tick_interval = MIN_EWFD_SCHEDULE_GAP_US;
+	schedule_unit->tick_interval = DEFAULT_EWFD_SCHEDULE_GAP_MS;
 	schedule_unit->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
 	schedule_unit->init_code = NULL;
 	schedule_unit->main_code = front_schedule;
@@ -100,7 +100,7 @@ ewfd_padding_conf_st* demo_get_front_padding_unit_conf(void) {
 	padding_unit->unit_uuid = 1;
 	padding_unit->unit_type = EWFD_UNIT_PADDING;
 	padding_unit->target_hopnum = 2;
-	padding_unit->tick_interval = MIN_EWFD_TICK_GAP_MS;
+	padding_unit->tick_interval = DEFAULT_EWFD_PADDING_GAP_MS;
 	padding_unit->initial_hop = EWFD_NODE_ROLE_CLIENT; // client only
 	padding_unit->init_code = front_init;
 	padding_unit->main_code = front_run;

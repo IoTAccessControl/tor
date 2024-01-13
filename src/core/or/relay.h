@@ -125,7 +125,7 @@ STATIC int resolved_cell_parse(const cell_t *cell, const relay_header_t *rh,
 STATIC int connection_edge_process_resolved_cell(edge_connection_t *conn,
                                                  const cell_t *cell,
                                                  const relay_header_t *rh);
-STATIC packed_cell_t *packed_cell_new(void);
+packed_cell_t *packed_cell_new(void);
 STATIC packed_cell_t *cell_queue_pop(cell_queue_t *queue);
 STATIC destroy_cell_t *destroy_cell_queue_pop(destroy_cell_queue_t *queue);
 STATIC int cell_queues_check_size(void);

@@ -36,7 +36,7 @@
 测试阶段，一次生成3-5个padding包
 */
 void run_ewfd_schedule_vm(ewfd_padding_runtime_st *ewfd_rt) {
-	uint32_t now_ti = monotime_absolute_msec();
+	uint64_t now_ti = monotime_absolute_msec();
 	ewfd_rt->circ_status.now_ti = now_ti;
 	ewfd_rt->circ_status.cur_padding_unit = get_current_padding_unit_uuid(ewfd_rt);
 
@@ -68,7 +68,7 @@ void run_ewfd_schedule_vm(ewfd_padding_runtime_st *ewfd_rt) {
 		uint8_t unit_uuid = (uint8_t) args >> 8;
 		uint8_t state = (uint8_t) args & 0xff;
 
-		ewfd_schedule_op(ewfd_rt->on_circ, EWFD_SCHEDULE_RESET_UNIT, unit_uuid, &state);
+		ewfd_schedule_alter_unit(ewfd_rt->on_circ, EWFD_SCHEDULE_RESET_UNIT, unit_uuid, &state);
 		// EWFD_LOG("[schedule-unit] reset unit: %d, state: %d", unit_uuid, state);
 	}
 }
@@ -85,7 +85,7 @@ void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
 
 	uint64_t ret = 0;
 
-#undef USE_C_DEBUG_CODE
+// #undef USE_C_DEBUG_CODE
 #ifdef USE_C_DEBUG_CODE
 	ret = ewfd_default_padding_unit(&ewfd_rt->circ_status);
 #else
@@ -97,7 +97,7 @@ void run_ewfd_padding_vm(ewfd_padding_runtime_st *ewfd_rt) {
 
 #endif // USE_C_DEBUG_CODE
 
-	uint32_t now_ti = monotime_absolute_msec();
+	uint64_t now_ti = monotime_absolute_msec();
 	int op = (int) (ret >> 32);
 	int args = (int) (ret & 0xffffffff);
 	if (ewfd_rt->circ_status.next_tick != 0) {
