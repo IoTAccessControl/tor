@@ -27,6 +27,9 @@ void circpad_machine_common_wf_ape_prob_back(circpad_machine_spec_t *m, double l
 void circpad_machine_common_adaptive_padding_machine(circpad_event_t event,
                                                 circpad_machine_spec_t *m);
 
+void circpad_machine_relay_interspace(smartlist_t *machines_sl);
+void circpad_machine_client_interspace(smartlist_t *machines_sl);
+
 #ifdef CIRCUITPADDING_MACHINES_PRIVATE
 
 /** State of the padding machines that actually sends padding */

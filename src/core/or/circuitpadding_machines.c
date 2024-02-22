@@ -48,6 +48,8 @@
 #include "core/or/or.h"
 #include "feature/nodelist/networkstatus.h"
 
+#include "lib/math/prob_distr.h"
+#include "lib/math/fp.h"
 #include "lib/crypt_ops/crypto_rand.h"
 
 #include "core/or/circuitlist.h"
@@ -908,4 +910,174 @@ circpad_machine_common_adaptive_padding_machine(circpad_event_t event,
       next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_BURST;
   m->states[CIRCPAD_STATE_BURST].
       next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_START;
+}
+
+void
+circpad_machine_client_interspace(smartlist_t *machines_sl)
+{
+  const struct uniform_t my_uniform = {
+      .base = UNIFORM(my_uniform),
+      .a = 0.0,
+      .b = 1.0,
+  };
+
+  circpad_machine_spec_t *client =
+      tor_malloc_zero(sizeof(circpad_machine_spec_t));
+  client->conditions.apply_state_mask = CIRCPAD_CIRC_STREAMS;
+  client->conditions.apply_purpose_mask = CIRCPAD_PURPOSE_ALL;
+  client->conditions.reduced_padding_ok = 1;
+
+  client->name = "interspace_client";
+  client->machine_index = 0;
+  client->target_hopnum = 2;
+  client->is_origin_side = 1;
+  client->allowed_padding_count = 1500;
+  client->max_padding_percent = 50;
+  circpad_machine_states_init(client, 3);
+
+  // wait until the relay is active
+  client->states[0].next_state[CIRCPAD_EVENT_PADDING_RECV] = 1;
+
+  // wait for something to either mask the length of or inject a fake request
+  client->states[1].next_state[CIRCPAD_EVENT_NONPADDING_RECV] = 2;
+  if (dist_sample(&my_uniform.base) < 0.5) {
+    client->states[1].next_state[CIRCPAD_EVENT_PADDING_RECV] = 2;
+  }
+
+  client->states[2].length_dist.type = CIRCPAD_DIST_PARETO;
+  client->states[2].length_dist.param1 = 4.7;
+  client->states[2].length_dist.param2 = 4.8;
+  client->states[2].start_length = 1;
+  client->states[2].iat_dist.type =
+      CIRCPAD_DIST_PARETO; // tweak for log-logistic?
+  client->states[2].iat_dist.param1 = 3.3;
+  client->states[2].iat_dist.param2 = 7.2;
+  client->states[2].dist_max_sample_usec = 9445;
+  client->states[2].next_state[CIRCPAD_EVENT_NONPADDING_SENT] = 1;
+  client->states[2].next_state[CIRCPAD_EVENT_PADDING_SENT] = 2;
+  if (dist_sample(&my_uniform.base) < 0.5) {
+    client->states[2].next_state[CIRCPAD_EVENT_NONPADDING_RECV] = 1;
+  }
+
+  client->machine_num = smartlist_len(machines_sl);
+  circpad_register_padding_machine(client, machines_sl);
+}
+
+void
+circpad_machine_relay_interspace(smartlist_t *machines_sl)
+{
+  circpad_machine_spec_t *relay =
+      tor_malloc_zero(sizeof(circpad_machine_spec_t));
+
+  // short define for sampling uniformly random [0,1.0]
+  const struct uniform_t my_uniform = {
+      .base = UNIFORM(my_uniform),
+      .a = 0.0,
+      .b = 1.0,
+  };
+#define CIRCPAD_UNI_RAND (dist_sample(&my_uniform.base))
+
+// uniformly random select a distribution parameters between [0,10]
+#define CIRCPAD_RAND_DIST_PARAM1 (CIRCPAD_UNI_RAND * 10)
+#define CIRCPAD_RAND_DIST_PARAM2 (CIRCPAD_UNI_RAND * 10)
+
+  relay->name = "interspace_relay";
+  relay->machine_index = 0;
+  relay->target_hopnum = 2;
+  relay->is_origin_side = 0;
+  relay->allowed_padding_count = 1500;
+  relay->max_padding_percent = 50;
+  circpad_machine_states_init(relay, 4);
+
+  if (CIRCPAD_UNI_RAND < 0.5) {
+    /*
+    machine has following states:
+    0. init: don't waste time early
+    1. wait: either extend or fake
+    2. extend: obfuscate length of existing bursts
+    3. fake: inject fake bursts
+    */
+
+    // wait for client to send something, no point in doing stuff too early
+    relay->states[0].next_state[CIRCPAD_EVENT_NONPADDING_RECV] = 1;
+
+    if (CIRCPAD_UNI_RAND < 0.5) {
+      // wait: extend real burst
+      relay->states[1].next_state[CIRCPAD_EVENT_NONPADDING_SENT] = 2;
+    } else {
+      // wait: inject a fake burst after a while (FIXME: too long below)
+      relay->states[1].iat_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+      relay->states[1].iat_dist.param1 =
+          CIRCPAD_UNI_RAND * 1000; // alpha, scale and mean
+      relay->states[1].iat_dist.param2 =
+          CIRCPAD_UNI_RAND *
+          10000; // shape, when > 1 larger reduces dispersion
+      relay->states[1].dist_max_sample_usec = 100000;
+      relay->states[1].next_state[CIRCPAD_EVENT_PADDING_SENT] = 3;
+    }
+
+    // extend: add fake padding for real bursts
+    relay->states[2].length_dist.type = CIRCPAD_DIST_PARETO;
+    relay->states[2].length_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[2].length_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[2].start_length = 1;
+    relay->states[2].iat_dist.type = CIRCPAD_DIST_PARETO;
+    relay->states[2].iat_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[2].iat_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[2].dist_max_sample_usec = 10000;
+    relay->states[2].next_state[CIRCPAD_EVENT_NONPADDING_SENT] = 1;
+    relay->states[2].next_state[CIRCPAD_EVENT_PADDING_SENT] = 2;
+
+    // fake: inject completely fake bursts
+    relay->states[3].length_dist.type = CIRCPAD_DIST_PARETO;
+    relay->states[3].length_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[3].length_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[3].start_length = 4;
+    relay->states[3].iat_dist.type = CIRCPAD_DIST_PARETO;
+    relay->states[3].iat_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[3].iat_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[3].dist_max_sample_usec = 10000;
+    relay->states[3].next_state[CIRCPAD_EVENT_NONPADDING_SENT] = 1;
+    relay->states[3].next_state[CIRCPAD_EVENT_PADDING_SENT] = 3;
+  } else {
+    // spring-mr
+    relay->states[0].iat_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+    relay->states[0].iat_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[0].iat_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[0].dist_max_sample_usec = 10000;
+    relay->states[0].next_state[CIRCPAD_EVENT_NONPADDING_RECV] = 1;
+    relay->states[0].next_state[CIRCPAD_EVENT_PADDING_RECV] = 1;
+
+    relay->states[1].iat_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+    relay->states[1].iat_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[1].iat_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[1].dist_max_sample_usec = 31443;
+    relay->states[1].next_state[CIRCPAD_EVENT_NONPADDING_SENT] = 2;
+
+    relay->states[2].length_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+    relay->states[2].length_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[2].length_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[2].start_length = 5;
+    relay->states[2].iat_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+    relay->states[2].iat_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[2].iat_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[2].dist_max_sample_usec = 100000;
+    relay->states[2].next_state[CIRCPAD_EVENT_PADDING_SENT] = 2;
+    relay->states[2].next_state[CIRCPAD_EVENT_PADDING_RECV] = 3;
+
+    relay->states[3].length_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+    relay->states[3].length_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[3].length_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[3].start_length = 5;
+    relay->states[3].iat_dist.type = CIRCPAD_DIST_LOG_LOGISTIC;
+    relay->states[3].iat_dist.param1 = CIRCPAD_RAND_DIST_PARAM1;
+    relay->states[3].iat_dist.param2 = CIRCPAD_RAND_DIST_PARAM2;
+    relay->states[3].dist_max_sample_usec = 55878;
+    relay->states[3].next_state[CIRCPAD_EVENT_NONPADDING_RECV] = 3;
+    relay->states[3].next_state[CIRCPAD_EVENT_NONPADDING_SENT] = 0;
+    relay->states[3].next_state[CIRCPAD_EVENT_PADDING_RECV] = 2;
+  }
+
+  relay->machine_num = smartlist_len(machines_sl);
+  circpad_register_padding_machine(relay, machines_sl);
 }

@@ -17,6 +17,7 @@ enum MyPaddingType {
 	EWFD_PADDING_APE = 1,
 	EWFD_PADDING_EBPF_TEST = 2,
 	EWFD_PADDING_TARMORT = 3,
+	EWFD_PADDING_INTERSPACE = 4,
 };
 
 typedef struct ewfd_client_conf_t {

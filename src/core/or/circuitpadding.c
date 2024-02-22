@@ -2835,8 +2835,11 @@ circpad_machines_init(void)
   } else if (ewfd_policy == EWFD_PADDING_EBPF_TEST) {
     EWFD_LOG("[padding] use eBPF test padding units");
     ewfd_framework_init();
-  }
-  else {
+  } else if (get_options()->EWFDPolicy == EWFD_PADDING_INTERSPACE) {
+    EWFD_LOG("[padding] init interspace padding machines");
+    circpad_machine_relay_interspace(relay_padding_machines);
+    circpad_machine_client_interspace(origin_padding_machines);
+  } else {
     EWFD_LOG("[padding] no padding machines");
   }
 
