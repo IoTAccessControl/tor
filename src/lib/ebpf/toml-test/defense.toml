@@ -1,0 +1,22 @@
+# allow two defense 
+
+[settings]
+used_defense = ["Tamarraw", ""]
+mode = "round-rubin"
+
+# detailed settings for 
+[[ mode ]]
+name = "round-rubin"
+tick = "500" # 500ms switch
+sequence = "random" # random or priority
+
+[[ defense ]]
+name = "Tamarraw"
+priority = 7  # 1 - 10
+arg1 = 12
+arg2 = 10
+
+[[ front ]]
+name = "Front"
+priority = 10
+arg1 = 12
