@@ -1,5 +1,9 @@
 noinst_LIBRARIES += src/lib/libtor-ebpf.a
 
+if UNITTESTS_ENABLED
+noinst_LIBRARIES += src/lib/libtor-ebpf-testing.a
+endif
+
 src_lib_libtor_ebpf_a_SOURCES = \
 	src/lib/ebpf/ebpf_vm.c \
 	src/lib/ebpf/ebpf_jit.c \
@@ -8,6 +12,11 @@ src_lib_libtor_ebpf_a_SOURCES = \
 	src/lib/ebpf/ewfd-defense/src/ewfd_helper.c \
 	src/lib/ebpf/ewfd-defense/src/hashmap.c \
 	src/lib/ebpf/ewfd-defense/src/ewfd_maps.c
+
+src_lib_libtor_ebpf_testing_a_SOURCES = \
+	$(src_lib_libtor_ebpf_a_SOURCES)
+src_lib_libtor_ebpf_testing_a_CPPFLAGS = $(AM_CPPFLAGS) $(TEST_CPPFLAGS)
+src_lib_libtor_ebpf_testing_a_CFLAGS = $(AM_CFLAGS) $(TEST_CFLAGS)
 
 noinst_HEADERS += \
 	src/lib/ebpf/ebpf_inst.h \

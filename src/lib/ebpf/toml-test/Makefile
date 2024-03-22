@@ -6,7 +6,7 @@ test1: test1.c
 
 parse: parse_conf.c
 	$(CC) -o $@.exe $< toml.c
-	./parse
+	./parse.exe
 
 clean:
 	rm -f test1 parse

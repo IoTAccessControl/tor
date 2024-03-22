@@ -39,8 +39,8 @@ def print_disasm(byte_code):
 	data = ubpf.disassembler.disassemble(byte_code)
 	for pc, li in enumerate(data.split("\n")):
 		if li:
-			print(pc, li)
-		# print(li)
+			# print(pc + 1, li)
+			print(li)
 	print("")
 
 def save_bpf_sec(sec, byte_code):

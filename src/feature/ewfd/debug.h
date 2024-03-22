@@ -3,8 +3,8 @@
 
 #include "core/or/or.h"
 
-#define EWFD_DEBUG // enable debug
-// #define USE_EWFD_STATISTICS // enable state logs
+// #define EWFD_DEBUG // enable debug
+#define USE_EWFD_STATISTICS // enable state logs
 
 /*----------------------------------------------------------------------------
 * Debug Log
@@ -44,6 +44,10 @@ void ewfd_my_log_caller(const char *fn, const char *fi, int li, const char *form
 和 debug/stat log的区别是，需要在include "debug.h"之前 define EWFD_USE_TEMP_LOG
 见：tor-src/src/feature/ewfd/ewfd_ticker.c
 */
+#ifdef USE_EWFD_STATISTICS
+	// STAT时禁用所有的TEMP_LOG
+	#undef EWFD_USE_TEMP_LOG
+#endif
 #ifdef EWFD_USE_TEMP_LOG
 	#define EWFD_TEMP_LOG(args...) \
 		log_fn_(LOG_LAST_LEV, LD_GENERAL, __FUNCTION__, args)

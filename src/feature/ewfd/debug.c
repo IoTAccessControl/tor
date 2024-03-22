@@ -72,7 +72,7 @@ const char *show_relay_command(uint8_t command) {
 void ewfd_statistic_on_cell_event(circuit_t *circ, bool is_send, uint8_t command) {
 	bool is_edge = CIRCUIT_IS_ORIGIN(circ);
 	if (is_send) {
-		EWFD_STAT_LOG("[STATISTICS] [Send] [%u] %s", ewfd_get_circuit_id(circ), show_relay_command(command));
+		EWFD_STAT_LOG("[STATISTICS] [SEND] [%u] %s", ewfd_get_circuit_id(circ), show_relay_command(command));
 	} else { // receive
 		if (is_edge && (command == RELAY_COMMAND_BEGIN 
 			|| command == RELAY_COMMAND_DATA
@@ -80,7 +80,7 @@ void ewfd_statistic_on_cell_event(circuit_t *circ, bool is_send, uint8_t command
 			|| command == RELAY_COMMAND_DROP
 			)) {
 			uint32_t gid = TO_ORIGIN_CIRCUIT(circ)->global_identifier;
-			EWFD_STAT_LOG("[STATISTICS] [Receive] [%u] %s", gid, show_relay_command(command));
+			EWFD_STAT_LOG("[STATISTICS] [RECV] [%u] %s", gid, show_relay_command(command));
 		}
 	}
 }

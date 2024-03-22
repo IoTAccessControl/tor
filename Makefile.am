@@ -81,6 +81,7 @@ TOR_UTIL_TESTING_LIBS = \
 	src/lib/libtor-confmgt-testing.a \
 	src/lib/libtor-pubsub-testing.a \
 	src/lib/libtor-dispatch-testing.a \
+	src/lib/libtor-ebpf-testing.a \
 	src/lib/libtor-time-testing.a \
 	src/lib/libtor-fs-testing.a \
 	src/lib/libtor-encoding-testing.a \

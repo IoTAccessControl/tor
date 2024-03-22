@@ -21,12 +21,17 @@ typedef struct ewfd_circ_status_t {
 	uintptr_t on_circ;
 
 	uint32_t send_cell_cnt;
+	uint32_t send_dummy_cnt;
 	uint32_t recv_cell_cnt;
 
 	// command 
 	uint8_t cur_padding_unit;
 	uint8_t last_relay_cmd;
 	uint8_t current_relay_cmd;
+	uint8_t defense_status;
+
+	// queue
+	uint32_t queue_occupacy;
 
 	// __OUT 
 	uint32_t next_tick;
@@ -44,6 +49,8 @@ static long (*ebpf_log_print)(const char *fmt, uint32_t fmt_size, ...) = (void *
 
 // helpers for ewfd packet/schedule
 static int (*ewfd_add_dummy_packet)(void *circut, uint32_t send_ti) = (void *) 6;
+static int (*ewfd_op_delay)(void *circut, uint32_t insert_ti, uint32_t delay_ms, uint32_t n_pkt) = (void *) 7;
+
 
 // helpers for data stream
 static int (*ebpf_init_data_stream)(uint64_t ewfd_unit, int map_idx, const char *data_stream_file) = (void *) 11;
@@ -55,3 +62,6 @@ static int (*ewfd_data_stream_dequeue)(uint64_t ewfd_unit, uint32_t data_stream_
 static void (*ewfd_histogram_init)(uint64_t ewfd_unit, uint32_t map_idx, uint32_t key_sz, uint32_t val_sz, uint32_t max_entries) = (void *) 21;
 static uint32_t (*ewfd_histogram_get)(uint64_t ewfd_unit, uint32_t map_idx, uint8_t index) = (void *) 22;
 static bool (*ewfd_histogram_set)(uint64_t ewfd_unit, uint32_t map_idx, uint8_t index, uint32_t token) = (void *) 23;
+
+static void (*ewfd_set_var)(uint64_t ewfd_unit, uint8_t tag, uint32_t val) = (void *) 30;
+static uint32_t (*ewfd_load_var)(uint64_t ewfd_unit, uint8_t tag) = (void *) 31;
