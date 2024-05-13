@@ -40,6 +40,9 @@ struct cell_ewfd_t {
 };
 
 
+// ewfd_policy_circ_data_t
+
+STATIC void cell_ewfd_initialize_ticks(void);
 
 #endif //CIRCUITMUX_EWFD_PRIVATE
 

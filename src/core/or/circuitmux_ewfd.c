@@ -79,12 +79,63 @@ void circuitmux_ewfd_free_all(void) {
 
 }
 
-static circuitmux_policy_data_t *
-ewma_alloc_cmux_data(circuitmux_t *cmux) {
-	return NULL;
+STATIC void cell_ewfd_initialize_ticks(void) {
+  
+}
+
+static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux) {
+  return NULL;
+}
+
+static void ewfd_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data) {
+
+}
+
+static circuitmux_policy_circ_data_t *
+ewfd_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
+                     circuit_t *circ, cell_direction_t direction,
+                     unsigned int cell_count) {
+  return NULL;
 }
 
 static void
-ewma_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data) {
-	
+ewfd_free_circ_data(circuitmux_t *cmux,
+                    circuitmux_policy_data_t *pol_data,
+                    circuit_t *circ,
+                    circuitmux_policy_circ_data_t *pol_circ_data) {
+
+}
+
+static void
+ewfd_notify_circ_active(circuitmux_t *cmux,
+                        circuitmux_policy_data_t *pol_data,
+                        circuit_t *circ,
+                        circuitmux_policy_circ_data_t *pol_circ_data) {
+}
+
+static void
+ewfd_notify_circ_inactive(circuitmux_t *cmux,
+                          circuitmux_policy_data_t *pol_data,
+                          circuit_t *circ,
+                          circuitmux_policy_circ_data_t *pol_circ_data) {
+}
+
+static void
+ewfd_notify_xmit_cells(circuitmux_t *cmux,
+                       circuitmux_policy_data_t *pol_data,
+                       circuit_t *circ,
+                       circuitmux_policy_circ_data_t *pol_circ_data,
+                       unsigned int n_cells) {
+}
+
+static circuit_t *
+ewfd_pick_active_circuit(circuitmux_t *cmux,
+                         circuitmux_policy_data_t *pol_data) {
+  return NULL;
+}
+
+static int
+ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
+              circuitmux_t *cmux_2, circuitmux_policy_data_t *pol_data_2) {
+  return 0;
 }

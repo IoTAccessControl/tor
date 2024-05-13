@@ -771,6 +771,7 @@ struct testgroup_t testgroups[] = {
   { "circuitpadding/", circuitpadding_tests },
   { "circuitlist/", circuitlist_tests },
   { "circuitmux/", circuitmux_tests },
+  { "circuitmux_ewfd/", circuitmux_ewfd_tests },
   { "circuitmux_ewma/", circuitmux_ewma_tests },
   { "circuitstats/", circuitstats_tests },
   { "circuituse/", circuituse_tests },
