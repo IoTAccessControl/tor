@@ -4,6 +4,29 @@
 
 /*** Static declarations for circuitmux_ewma.c ***/
 
+typedef struct ewma_policy_data_t {
+  circuitmux_policy_data_t base_;
+
+  /**
+   * Priority queue of cell_ewma_t for circuits with queued cells waiting
+   * for room to free up on the channel that owns this circuitmux.  Kept
+   * in heap order according to EWMA.  This was formerly in channel_t, and
+   * in or_connection_t before that.
+   */
+  smartlist_t *active_circuit_pqueue;
+
+  /**
+   * The tick on which the cell_ewma_ts in active_circuit_pqueue last had
+   * their ewma values rescaled.  This was formerly in channel_t, and in
+   * or_connection_t before that.
+   */
+  unsigned int active_circuit_pqueue_last_recalibrated;
+} ewma_policy_data_t;
+
+#define EWMA_POL_DATA_MAGIC 0x2fd8b16aU
+#define EWMA_POL_CIRC_DATA_MAGIC 0x761e7747U
+
+
 // static void add_cell_ewma(ewma_policy_data_t *pol, cell_ewma_t *ewma);
 // static int compare_cell_ewma_counts(const void *p1, const void *p2);
 // static circuit_t * cell_ewma_to_circuit(cell_ewma_t *ewma);
@@ -84,7 +107,17 @@ STATIC void cell_ewfd_initialize_ticks(void) {
 }
 
 static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux) {
-  return NULL;
+  ewma_policy_data_t *pol = NULL;
+
+  tor_assert(cmux);
+
+  pol = tor_malloc_zero(sizeof(*pol));
+  pol->base_.magic = EWMA_POL_DATA_MAGIC;
+  pol->active_circuit_pqueue = smartlist_new();
+  pol->active_circuit_pqueue_last_recalibrated = 0;
+  // cell_ewma_get_tick();
+
+  return TO_CMUX_POL_DATA(pol);
 }
 
 static void ewfd_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data) {
