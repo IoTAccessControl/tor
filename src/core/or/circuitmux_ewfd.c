@@ -121,6 +121,7 @@ static int compare_cell_ewfd_counts(const void *p1, const void *p2)
   return 0;
 }
 
+// done
 static void remove_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
 {
   tor_assert(pol);
@@ -268,10 +269,18 @@ static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux) {
   return TO_CMUX_POL_DATA(pol);
 }
 
+// done
 static void ewfd_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data) {
-  ewfd_policy_data_t *ewma_pol = TO_EWFD_POL_DATA(pol_data);
-  smartlist_free(ewma_pol->active_circuit_pqueue);
-  tor_free(ewma_pol);
+  ewfd_policy_data_t *pol = NULL;
+
+  tor_assert(cmux);
+  if (!pol_data) return;
+
+  pol = TO_EWFD_POL_DATA(pol_data);
+
+  smartlist_free(pol->active_circuit_pqueue);
+  memwipe(pol, 0xda, sizeof(ewfd_policy_data_t));
+  tor_free(pol);
 }
 
 // done
@@ -301,12 +310,23 @@ ewfd_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
   return TO_CMUX_POL_CIRC_DATA(cdata);
 }
 
+// done
 static void
 ewfd_free_circ_data(circuitmux_t *cmux,
                     circuitmux_policy_data_t *pol_data,
                     circuit_t *circ,
                     circuitmux_policy_circ_data_t *pol_circ_data) {
+  ewfd_policy_circ_data_t *cdata = NULL;
 
+  tor_assert(cmux);
+  tor_assert(circ);
+  tor_assert(pol_data);
+
+  if (!pol_circ_data) return;
+
+  cdata = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+  memwipe(cdata, 0xdc, sizeof(ewfd_policy_circ_data_t));
+  tor_free(cdata);
 }
 
 // done
@@ -334,13 +354,27 @@ ewfd_notify_circ_active(circuitmux_t *cmux,
   add_cell_ewfd(pol, &(cdata->cell_ewfd_ewma));
 }
 
+// done
 static void
 ewfd_notify_circ_inactive(circuitmux_t *cmux,
                           circuitmux_policy_data_t *pol_data,
                           circuit_t *circ,
                           circuitmux_policy_circ_data_t *pol_circ_data) {
+  ewfd_policy_data_t *pol = NULL;
+  ewfd_policy_circ_data_t *cdata = NULL;
+
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+  tor_assert(pol_circ_data);
+
+  pol = TO_EWFD_POL_DATA(pol_data);
+  cdata = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+
+  remove_cell_ewfd(pol, &(cdata->cell_ewfd_ewma));
 }
 
+// done
 static void
 ewfd_notify_xmit_cells(circuitmux_t *cmux,
                        circuitmux_policy_data_t *pol_data,
