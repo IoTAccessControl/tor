@@ -1,6 +1,8 @@
 /* Copyright (c) 2013-2021, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
+#include "lib/log/util_bug.h"
+#include "feature/ewfd/debug.h"
 #define CIRCUITMUX_PRIVATE
 #define CIRCUITMUX_EWFD_PRIVATE
 
@@ -13,6 +15,9 @@
 #include "test/fakecircs.h"
 #include "test/test.h"
 
+/*
+done
+*/
 static void
 test_cmux_ewfd_active_circuit(void *arg)
 {
@@ -23,23 +28,24 @@ test_cmux_ewfd_active_circuit(void *arg)
 
   (void) arg;
 
-//   pol_data = ewma_policy.alloc_cmux_data(&cmux);
-//   tt_assert(pol_data);
-//   circ_data = ewma_policy.alloc_circ_data(&cmux, pol_data, &circ,
-//                                           CELL_DIRECTION_OUT, 42);
-//   tt_assert(circ_data);
+  pol_data = ewfd_policy.alloc_cmux_data(&cmux);
+  tt_assert(pol_data);
 
-//   /* Get EWMA specific objects. */
+  circ_data = ewfd_policy.alloc_circ_data(&cmux, pol_data, &circ,
+                                          CELL_DIRECTION_OUT, 42);
+  tt_assert(circ_data);
 
-//   /* Make circuit active. */
-//   ewma_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
+  /* Get EWMA specific objects. */
 
-//   circuit_t *entry = ewma_policy.pick_active_circuit(&cmux, pol_data);
-//   tt_mem_op(entry, OP_EQ, &circ, sizeof(circ));
+  /* Make circuit active. */
+  ewfd_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
 
-//  done:
-//   ewma_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
-//   ewma_policy.free_cmux_data(&cmux, pol_data);
+  circuit_t *entry = ewfd_policy.pick_active_circuit(&cmux, pol_data);
+  tt_mem_op(entry, OP_EQ, &circ, sizeof(circ));
+
+ done:
+  ewfd_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
+  ewfd_policy.free_cmux_data(&cmux, pol_data);
 }
 
 static void
@@ -49,16 +55,41 @@ test_cmux_ewfd_xmit_cell(void *arg)
   circuitmux_policy_data_t *pol_data = NULL;
   circuit_t circ; /* garbage */
   circuitmux_policy_circ_data_t *circ_data = NULL;
-//   ewma_policy_data_t *ewma_pol_data;
-//   ewma_policy_circ_data_t *ewma_data;
+  ewfd_policy_data_t *ewfd_pol_data;
+  ewfd_policy_circ_data_t *ewfd_data;
   double old_cell_count;
 
   (void) arg;
 
+  pol_data = ewfd_policy.alloc_cmux_data(&cmux);
+  tt_assert(pol_data);
+  circ_data = ewfd_policy.alloc_circ_data(&cmux, pol_data, &circ,
+                                          CELL_DIRECTION_OUT, 42);
+  tt_assert(circ_data);
+  ewfd_pol_data = TO_EWFD_POL_DATA(pol_data);
+  ewfd_data = TO_EWFD_POL_CIRC_DATA(circ_data);
 
-//  done:
-//   ewma_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
-//   ewma_policy.free_cmux_data(&cmux, pol_data);
+  /* Make circuit active. */
+  ewfd_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
+
+  /* Move back in time the last time we calibrated so we scale the active
+   * circuit when emitting a cell. */
+  ewfd_pol_data->active_circuit_pqueue_last_recalibrated -= 100;
+  ewfd_data->cell_ewfd_ewma.last_adjusted_tick =
+    ewfd_pol_data->active_circuit_pqueue_last_recalibrated;
+
+  /* Grab old cell count. */
+  old_cell_count = ewfd_data->cell_ewfd_ewma.cell_count;
+
+  ewfd_policy.notify_xmit_cells(&cmux, pol_data, &circ, circ_data, 1);
+
+  /* Our old cell count should be lower to what we have since we just emitted
+   * a cell and thus we scale. */
+  tt_double_op(old_cell_count, OP_LT, ewfd_data->cell_ewfd_ewma.cell_count);
+
+ done:
+  ewfd_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
+  ewfd_policy.free_cmux_data(&cmux, pol_data);
 }
 
 static void *
@@ -68,12 +99,34 @@ cmux_ewfd_setup_test(const struct testcase_t *tc)
 
   (void) tc;
 
+  EWFD_LOG("cmux_ewfd_setup_test");
+
 //   cell_ewma_initialize_ticks();
-	cell_ewfd_initialize_ticks();
+	cell_ewfd_ewma_initialize_ticks();
   // cmux_ewma_set_options(NULL, NULL);
+  tor_assert(-1);
 
   return &whatever;
 }
+
+static void
+test_cmux_ewfd_notify_circ(void *arg)
+{
+
+}
+
+static void
+test_cmux_ewfd_policy_circ_data(void *arg)
+{
+
+}
+
+static void
+test_cmux_ewfd_policy_data(void *arg)
+{
+
+}
+
 
 static int
 cmux_ewfd_cleanup_test(const struct testcase_t *tc, void *ptr)
@@ -97,6 +150,9 @@ static struct testcase_setup_t cmux_ewfd_test_setup = {
 
 struct testcase_t circuitmux_ewfd_tests[] = {
   TEST_CMUX_EWFD(active_circuit),
+  TEST_CMUX_EWFD(policy_data),
+  TEST_CMUX_EWFD(policy_circ_data),
+  TEST_CMUX_EWFD(notify_circ),
   TEST_CMUX_EWFD(xmit_cell),
 
   END_OF_TESTCASES

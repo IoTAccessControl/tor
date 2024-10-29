@@ -18,11 +18,11 @@ void circuitmux_ewfd_free_all(void);
 
 /*** EWFD structures ***/
 
-typedef struct cell_ewfd_t cell_ewfd_t;
+typedef struct cell_ewfd_ewma_t cell_ewfd_ewma_t;
 typedef struct ewfd_policy_data_t ewfd_policy_data_t;
 typedef struct ewfd_policy_circ_data_t ewfd_policy_circ_data_t;
 
-struct cell_ewfd_t {
+struct cell_ewfd_ewma_t {
   /** The last 'tick' at which we recalibrated cell_count.
    *
    * A cell sent at exactly the start of this tick has weight 1.0. Cells sent
@@ -30,7 +30,7 @@ struct cell_ewfd_t {
    * earlier have less weight. */
   uint32_t last_adjusted_tick;
   /** The EWMA of the cell count. */
-  uint32_t cell_count;
+  double cell_count;
   /** True iff this is the cell count for a circuit's previous
    * channel. */
   uint32_t is_for_p_chan : 1;
@@ -39,10 +39,76 @@ struct cell_ewfd_t {
   int heap_index;
 };
 
+typedef struct ewfd_policy_data_t {
+  circuitmux_policy_data_t base_;
+
+  /**
+   * Priority queue of cell_ewma_t for circuits with queued cells waiting
+   * for room to free up on the channel that owns this circuitmux.  Kept
+   * in heap order according to EWMA.  This was formerly in channel_t, and
+   * in or_connection_t before that.
+   */
+  smartlist_t *active_circuit_pqueue;
+
+  /**
+   * The tick on which the cell_ewma_ts in active_circuit_pqueue last had
+   * their ewma values rescaled.  This was formerly in channel_t, and in
+   * or_connection_t before that.
+   */
+  unsigned int active_circuit_pqueue_last_recalibrated;
+} ewfd_policy_data_t;
+
+struct ewfd_policy_circ_data_t {
+  circuitmux_policy_circ_data_t base_;
+
+  /**
+   * The EWMA count for the number of cells flushed from this circuit
+   * onto this circuitmux.  Used to determine which circuit to flush
+   * from next.  This was formerly in circuit_t and or_circuit_t.
+   */
+  cell_ewfd_ewma_t cell_ewfd_ewma;
+
+  /**
+   * Pointer back to the circuit_t this is for; since we're separating
+   * out circuit selection policy like this, we can't attach cell_ewma_t
+   * to the circuit_t any more, so we can't use SUBTYPE_P directly to a
+   * circuit_t like before; instead get it here.
+   */
+  circuit_t *circ;
+};
+
+#define EWFD_POL_DATA_MAGIC 0x2fd8b16bU
+#define EWFD_POL_CIRC_DATA_MAGIC 0x761e774cU
+
+static inline ewfd_policy_data_t *
+TO_EWFD_POL_DATA(circuitmux_policy_data_t *pol)
+{
+  if (!pol) return NULL;
+  else {
+    tor_assertf(pol->magic == EWFD_POL_DATA_MAGIC,
+                "Mismatch: %"PRIu32" != %"PRIu32,
+                pol->magic, EWFD_POL_DATA_MAGIC);
+    return DOWNCAST(ewfd_policy_data_t, pol);
+  }
+}
+
+static inline ewfd_policy_circ_data_t *
+TO_EWFD_POL_CIRC_DATA(circuitmux_policy_circ_data_t *pol)
+{
+  if (!pol) return NULL;
+  else {
+    tor_assertf(pol->magic == EWFD_POL_CIRC_DATA_MAGIC,
+                "Mismatch: %"PRIu32" != %"PRIu32,
+                pol->magic, EWFD_POL_CIRC_DATA_MAGIC);
+    return DOWNCAST(ewfd_policy_circ_data_t, pol);
+  }
+}
+
 
 // ewfd_policy_circ_data_t
 
-STATIC void cell_ewfd_initialize_ticks(void);
+STATIC void cell_ewfd_ewma_initialize_ticks(void);
+STATIC unsigned cell_ewfd_ewma_get_current_tick_and_fraction(double *remainder_out);
 
 #endif //CIRCUITMUX_EWFD_PRIVATE
 
