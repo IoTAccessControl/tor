@@ -34,6 +34,7 @@
  * Define this so channel.h gives us things only channel_t subclasses
  * should touch.
  */
+#include "core/or/circuitmux_ewfd.h"
 #define CHANNEL_OBJECT_PRIVATE
 
 #define CHANNELTLS_PRIVATE
@@ -43,6 +44,7 @@
 #include "core/or/channeltls.h"
 #include "core/or/circuitmux.h"
 #include "core/or/circuitmux_ewma.h"
+#include "core/or/circuitmux_ewfd.h"
 #include "core/or/command.h"
 #include "app/config/config.h"
 #include "app/config/resolve_addr.h"
@@ -178,7 +180,8 @@ channel_tls_common_init(channel_tls_t *tlschan)
 
   chan->cmux = circuitmux_alloc();
   /* We only have one policy for now so always set it to EWMA. */
-  circuitmux_set_policy(chan->cmux, &ewma_policy);
+  // circuitmux_set_policy(chan->cmux, &ewma_policy);
+  circuitmux_set_policy(chan->cmux, &ewfd_policy);
 }
 
 /**

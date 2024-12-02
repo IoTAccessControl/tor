@@ -14,6 +14,18 @@
 static int ewfd_ewma_tick_len = EWMA_TICK_LEN_DEFAULT;
 static double ewfd_ewma_scale_factor = 0.1;
 
+/** The default per-tick scale factor, if it hasn't been overridden by a
+ * consensus or a configuration setting.  zero means "disabled". */
+#define EWMA_DEFAULT_HALFLIFE 0.0
+
+/*** Some useful constant #defines ***/
+
+/** Any halflife smaller than this number of seconds is considered to be
+ * "disabled". */
+#define EPSILON 0.00001
+/** The natural logarithm of 0.5. */
+#define LOG_ONEHALF -0.69314718055994529
+
 static void add_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma);
 static int compare_cell_ewfd_counts(const void *p1, const void *p2);
 static circuit_t * cell_ewfd_to_circuit(cell_ewfd_ewma_t *ewfd_conf);
@@ -84,154 +96,7 @@ static monotime_coarse_t start_of_current_tick;
 /** What is the number of the current tick? */
 static unsigned current_tick_num;
 
-// done
-static circuit_t *
-cell_ewfd_to_circuit(cell_ewfd_ewma_t *ewma)
-{
-  ewfd_policy_circ_data_t *cdata = NULL;
-
-  tor_assert(ewma);
-  cdata = SUBTYPE_P(ewma, ewfd_policy_circ_data_t, cell_ewfd_ewma);
-  tor_assert(cdata);
-
-  return cdata->circ;
-}
-
-static void add_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
-{
-  tor_assert(pol);
-  tor_assert(ewma);
-
-    scale_single_cell_ewfd_ewma(
-      ewma,
-      pol->active_circuit_pqueue_last_recalibrated);
-
-  smartlist_add(pol->active_circuit_pqueue, ewma);
-  ewma->heap_index = smartlist_len(pol->active_circuit_pqueue) - 1;
-  EWFD_LOG("Added circuit %p", cell_ewfd_to_circuit(ewma));
-}
-
-static int compare_cell_ewfd_counts(const void *p1, const void *p2) 
-{
-  const cell_ewfd_ewma_t *ewma1 = p1, *ewma2 = p2;
-  if (ewma1->cell_count < ewma2->cell_count)
-    return -1;
-  if (ewma1->cell_count > ewma2->cell_count)
-    return 1;
-  return 0;
-}
-
-// done
-static void remove_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
-{
-  tor_assert(pol);
-  tor_assert(pol->active_circuit_pqueue);
-  tor_assert(ewma);
-  tor_assert(ewma->heap_index != -1);
-
-  smartlist_pqueue_remove(pol->active_circuit_pqueue,
-                          compare_cell_ewfd_counts,
-                          offsetof(cell_ewfd_ewma_t, heap_index),
-                          ewma);
-}
-
-static cell_ewfd_ewma_t * pop_first_cell_ewfd(ewfd_policy_data_t *pol)
-{
-    tor_assert(pol);
-  tor_assert(pol->active_circuit_pqueue);
-
-  return smartlist_pqueue_pop(pol->active_circuit_pqueue,
-                              compare_cell_ewfd_counts,
-                              offsetof(cell_ewfd_ewma_t, heap_index));
-}
-
-static inline double get_scale_factor(unsigned from_tick, unsigned to_tick)
-{
-  return pow(ewfd_ewma_scale_factor, to_tick - from_tick);
-}
-
-static void scale_single_cell_ewfd_ewma(cell_ewfd_ewma_t *ewma, unsigned cur_tick)
-{
-  double factor = get_scale_factor(ewma->last_adjusted_tick, cur_tick);
-  ewma->cell_count *= factor;
-  ewma->last_adjusted_tick = cur_tick;
-}
-
-/**
- * Initialize the system that tells which ewma tick we are in.
- */
-STATIC void
-cell_ewfd_ewma_initialize_ticks(void)
-{
-  if (ewfd_ewma_ticks_initialized)
-    return;
-  monotime_coarse_get(&start_of_current_tick);
-  crypto_rand((char*)&current_tick_num, sizeof(current_tick_num));
-  ewfd_ewma_ticks_initialized = 1;
-}
-
-/** Compute the current cell_ewma tick and the fraction of the tick that has
- * elapsed between the start of the tick and the current time.  Return the
- * former and store the latter in *<b>remainder_out</b>.
- *
- * These tick values are not meant to be shared between Tor instances, or used
- * for other purposes. */
-STATIC unsigned
-cell_ewfd_ewma_get_current_tick_and_fraction(double *remainder_out)
-{
-  if (BUG(!ewfd_ewma_ticks_initialized)) {
-    cell_ewfd_ewma_initialize_ticks(); // LCOV_EXCL_LINE
-  }
-  monotime_coarse_t now;
-  monotime_coarse_get(&now);
-  int32_t msec_diff = monotime_coarse_diff_msec32(&start_of_current_tick,
-                                                  &now);
-  if (msec_diff > (1000*ewfd_ewma_tick_len)) {
-    unsigned ticks_difference = msec_diff / (1000*ewfd_ewma_tick_len);
-    monotime_coarse_add_msec(&start_of_current_tick,
-                             &start_of_current_tick,
-                             ticks_difference * 1000 * ewfd_ewma_tick_len);
-    current_tick_num += ticks_difference;
-    msec_diff %= 1000*ewfd_ewma_tick_len;
-  }
-  *remainder_out = ((double)msec_diff) / (1.0e3 * ewfd_ewma_tick_len);
-  return current_tick_num;
-}
-
-
-/* 修改所有节点的ewma值
-*/
-static void scale_active_circuits(ewfd_policy_data_t *pol,
-                                  unsigned cur_tick)
-{
-  double factor;
-
-  tor_assert(pol);
-  tor_assert(pol->active_circuit_pqueue);
-
-  factor =
-    get_scale_factor(
-      pol->active_circuit_pqueue_last_recalibrated,
-      cur_tick);
-  /** Ordinarily it isn't okay to change the value of an element in a heap,
-   * but it's okay here, since we are preserving the order. */
-  SMARTLIST_FOREACH_BEGIN(
-      pol->active_circuit_pqueue,
-      cell_ewfd_ewma_t *, e) {
-    tor_assert(e->last_adjusted_tick ==
-               pol->active_circuit_pqueue_last_recalibrated);
-    e->cell_count *= factor;
-    e->last_adjusted_tick = cur_tick;
-  } SMARTLIST_FOREACH_END(e);
-  pol->active_circuit_pqueue_last_recalibrated = cur_tick;
-}
-
-/** Have we initialized the ewma tick-counting logic? */
-static int ewfd_ticks_initialized = 0;
-/** At what monotime_coarse_t did the current tick begin? */
-static monotime_coarse_t start_of_current_tick;
-/** What is the number of the current tick? */
-static unsigned current_tick_num;
+/* EWMA helper functions */
 
 // done
 static inline unsigned int
@@ -244,17 +109,7 @@ cell_ewfd_get_tick(void)
   return current_tick_num + msec_diff / (1000*ewfd_ewma_tick_len);
 }
 
-
-/** Adjust the global cell scale factor based on <b>options</b> */
-void cmux_ewfd_set_options(const or_options_t *options, const networkstatus_t *consensus) {
-
-}
-
-
-void circuitmux_ewfd_free_all(void) {
-
-}
-
+/* */
 // done
 static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux) {
   ewfd_policy_data_t *pol = NULL;
@@ -442,8 +297,216 @@ ewfd_pick_active_circuit(circuitmux_t *cmux,
   return circ;
 }
 
-static int
-ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
+
+// done
+static int ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
               circuitmux_t *cmux_2, circuitmux_policy_data_t *pol_data_2) {
+  ewfd_policy_data_t *p1 = NULL, *p2 = NULL;
+  cell_ewfd_ewma_t *ce1 = NULL, *ce2 = NULL;
+
+  tor_assert(cmux_1);
+  tor_assert(pol_data_1);
+  tor_assert(cmux_2);
+  tor_assert(pol_data_2);
+
+  p1 = TO_EWFD_POL_DATA(pol_data_1);
+  p2 = TO_EWFD_POL_DATA(pol_data_2);
+
+  if (p1 != p2) {
+    /* Get the head cell_ewma_t from each queue */
+    if (smartlist_len(p1->active_circuit_pqueue) > 0) {
+      ce1 = smartlist_get(p1->active_circuit_pqueue, 0);
+    }
+
+    if (smartlist_len(p2->active_circuit_pqueue) > 0) {
+      ce2 = smartlist_get(p2->active_circuit_pqueue, 0);
+    }
+
+    /* Got both of them? */
+    if (ce1 != NULL && ce2 != NULL) {
+      /* Pick whichever one has the better best circuit */
+      return compare_cell_ewfd_counts(ce1, ce2);
+    } else {
+      if (ce1 != NULL) {
+        /* We only have a circuit on cmux_1, so prefer it */
+        return -1;
+      } else if (ce2 != NULL) {
+        /* We only have a circuit on cmux_2, so prefer it */
+        return 1;
+      } else {
+        /* No circuits at all; no preference */
+        return 0;
+      }
+    }
+  } else {
+    /* We got identical params */
+    return 0;
+  }
+}
+
+// done
+static int compare_cell_ewfd_counts(const void *p1, const void *p2) 
+{
+  const cell_ewfd_ewma_t *ewma1 = p1, *ewma2 = p2;
+  if (ewma1->cell_count < ewma2->cell_count)
+    return -1;
+  if (ewma1->cell_count > ewma2->cell_count)
+    return 1;
   return 0;
+}
+
+// done
+static circuit_t *
+cell_ewfd_to_circuit(cell_ewfd_ewma_t *ewma)
+{
+  ewfd_policy_circ_data_t *cdata = NULL;
+
+  tor_assert(ewma);
+  cdata = SUBTYPE_P(ewma, ewfd_policy_circ_data_t, cell_ewfd_ewma);
+  tor_assert(cdata);
+
+  return cdata->circ;
+}
+
+
+/* ==== Functions for scaling cell_ewma_t ==== */
+
+
+/**
+ * Initialize the system that tells which ewma tick we are in.
+ */
+STATIC void
+cell_ewfd_ewma_initialize_ticks(void)
+{
+  if (ewfd_ewma_ticks_initialized)
+    return;
+  monotime_coarse_get(&start_of_current_tick);
+  crypto_rand((char*)&current_tick_num, sizeof(current_tick_num));
+  ewfd_ewma_ticks_initialized = 1;
+}
+
+/** Compute the current cell_ewma tick and the fraction of the tick that has
+ * elapsed between the start of the tick and the current time.  Return the
+ * former and store the latter in *<b>remainder_out</b>.
+ *
+ * These tick values are not meant to be shared between Tor instances, or used
+ * for other purposes. */
+STATIC unsigned
+cell_ewfd_ewma_get_current_tick_and_fraction(double *remainder_out)
+{
+  if (BUG(!ewfd_ewma_ticks_initialized)) {
+    cell_ewfd_ewma_initialize_ticks(); // LCOV_EXCL_LINE
+  }
+  monotime_coarse_t now;
+  monotime_coarse_get(&now);
+  int32_t msec_diff = monotime_coarse_diff_msec32(&start_of_current_tick,
+                                                  &now);
+  if (msec_diff > (1000*ewfd_ewma_tick_len)) {
+    unsigned ticks_difference = msec_diff / (1000*ewfd_ewma_tick_len);
+    monotime_coarse_add_msec(&start_of_current_tick,
+                             &start_of_current_tick,
+                             ticks_difference * 1000 * ewfd_ewma_tick_len);
+    current_tick_num += ticks_difference;
+    msec_diff %= 1000*ewfd_ewma_tick_len;
+  }
+  *remainder_out = ((double)msec_diff) / (1.0e3 * ewfd_ewma_tick_len);
+  return current_tick_num;
+}
+
+// ignore: get_circuit_priority_halflife
+
+/** Adjust the global cell scale factor based on <b>options</b> */
+void cmux_ewfd_set_options(const or_options_t *options, const networkstatus_t *consensus) {
+  //   double halflife_default =
+    // ((double) CMUX_PRIORITY_HALFLIFE_MSEC_DEFAULT) / 1000.0;
+  cell_ewfd_ewma_initialize_ticks();
+  ewfd_ewma_scale_factor = exp(LOG_ONEHALF / 30);
+  ewfd_ewma_tick_len = EWMA_TICK_LEN_DEFAULT;
+  log_info(LD_OR,
+           "Enabled cell_ewma algorithm "
+           "scale factor is %f per %d seconds",
+            ewfd_ewma_scale_factor, ewfd_ewma_tick_len);
+}
+
+static inline double get_scale_factor(unsigned from_tick, unsigned to_tick)
+{
+  return pow(ewfd_ewma_scale_factor, to_tick - from_tick);
+}
+
+
+/* 修改所有节点的ewma值
+*/
+static void scale_active_circuits(ewfd_policy_data_t *pol,
+                                  unsigned cur_tick)
+{
+  double factor;
+
+  tor_assert(pol);
+  tor_assert(pol->active_circuit_pqueue);
+
+  factor =
+    get_scale_factor(
+      pol->active_circuit_pqueue_last_recalibrated,
+      cur_tick);
+  /** Ordinarily it isn't okay to change the value of an element in a heap,
+   * but it's okay here, since we are preserving the order. */
+  SMARTLIST_FOREACH_BEGIN(
+      pol->active_circuit_pqueue,
+      cell_ewfd_ewma_t *, e) {
+    tor_assert(e->last_adjusted_tick ==
+               pol->active_circuit_pqueue_last_recalibrated);
+    e->cell_count *= factor;
+    e->last_adjusted_tick = cur_tick;
+  } SMARTLIST_FOREACH_END(e);
+  pol->active_circuit_pqueue_last_recalibrated = cur_tick;
+}
+
+
+static void add_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
+{
+  tor_assert(pol);
+  tor_assert(ewma);
+
+    scale_single_cell_ewfd_ewma(
+      ewma,
+      pol->active_circuit_pqueue_last_recalibrated);
+
+  smartlist_add(pol->active_circuit_pqueue, ewma);
+  ewma->heap_index = smartlist_len(pol->active_circuit_pqueue) - 1;
+  EWFD_LOG("Added circuit %p", cell_ewfd_to_circuit(ewma));
+}
+
+// done
+static void remove_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
+{
+  tor_assert(pol);
+  tor_assert(pol->active_circuit_pqueue);
+  tor_assert(ewma);
+  tor_assert(ewma->heap_index != -1);
+
+  smartlist_pqueue_remove(pol->active_circuit_pqueue,
+                          compare_cell_ewfd_counts,
+                          offsetof(cell_ewfd_ewma_t, heap_index),
+                          ewma);
+}
+
+static cell_ewfd_ewma_t * pop_first_cell_ewfd(ewfd_policy_data_t *pol)
+{
+    tor_assert(pol);
+  tor_assert(pol->active_circuit_pqueue);
+
+  return smartlist_pqueue_pop(pol->active_circuit_pqueue,
+                              compare_cell_ewfd_counts,
+                              offsetof(cell_ewfd_ewma_t, heap_index));
+}
+
+static void scale_single_cell_ewfd_ewma(cell_ewfd_ewma_t *ewma, unsigned cur_tick)
+{
+  double factor = get_scale_factor(ewma->last_adjusted_tick, cur_tick);
+  ewma->cell_count *= factor;
+  ewma->last_adjusted_tick = cur_tick;
+}
+
+void circuitmux_ewfd_free_all(void) {
+  ewfd_ewma_ticks_initialized = 0;
 }
