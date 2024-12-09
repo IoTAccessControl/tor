@@ -1,8 +1,12 @@
 /* Copyright (c) 2013-2021, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
+#include "lib/container/smartlist.h"
 #include "lib/log/util_bug.h"
+#include "lib/smartlist_core/smartlist_core.h"
+#include "lib/smartlist_core/smartlist_foreach.h"
 #include "feature/ewfd/debug.h"
+#include <stdio.h>
 #define CIRCUITMUX_PRIVATE
 #define CIRCUITMUX_EWFD_PRIVATE
 
@@ -19,7 +23,7 @@
 done
 */
 static void
-test_cmux_ewfd_active_circuit(void *arg)
+test_cmux_ewfd_ewma_active_circuit(void *arg)
 {
   circuitmux_t cmux; /* garbage */
   circuitmux_policy_data_t *pol_data = NULL;
@@ -28,28 +32,28 @@ test_cmux_ewfd_active_circuit(void *arg)
 
   (void) arg;
 
-  pol_data = ewfd_policy.alloc_cmux_data(&cmux);
+  pol_data = ewfd_ewma_policy.alloc_cmux_data(&cmux);
   tt_assert(pol_data);
 
-  circ_data = ewfd_policy.alloc_circ_data(&cmux, pol_data, &circ,
+  circ_data = ewfd_ewma_policy.alloc_circ_data(&cmux, pol_data, &circ,
                                           CELL_DIRECTION_OUT, 42);
   tt_assert(circ_data);
 
   /* Get EWMA specific objects. */
 
   /* Make circuit active. */
-  ewfd_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
 
-  circuit_t *entry = ewfd_policy.pick_active_circuit(&cmux, pol_data);
+  circuit_t *entry = ewfd_ewma_policy.pick_active_circuit(&cmux, pol_data);
   tt_mem_op(entry, OP_EQ, &circ, sizeof(circ));
 
  done:
-  ewfd_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
-  ewfd_policy.free_cmux_data(&cmux, pol_data);
+  ewfd_ewma_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.free_cmux_data(&cmux, pol_data);
 }
 
 static void
-test_cmux_ewfd_xmit_cell(void *arg)
+test_cmux_ewfd_ewma_xmit_cell(void *arg)
 {
   circuitmux_t cmux; /* garbage */
   circuitmux_policy_data_t *pol_data = NULL;
@@ -61,16 +65,16 @@ test_cmux_ewfd_xmit_cell(void *arg)
 
   (void) arg;
 
-  pol_data = ewfd_policy.alloc_cmux_data(&cmux);
+  pol_data = ewfd_ewma_policy.alloc_cmux_data(&cmux);
   tt_assert(pol_data);
-  circ_data = ewfd_policy.alloc_circ_data(&cmux, pol_data, &circ,
+  circ_data = ewfd_ewma_policy.alloc_circ_data(&cmux, pol_data, &circ,
                                           CELL_DIRECTION_OUT, 42);
   tt_assert(circ_data);
   ewfd_pol_data = TO_EWFD_POL_DATA(pol_data);
   ewfd_data = TO_EWFD_POL_CIRC_DATA(circ_data);
 
   /* Make circuit active. */
-  ewfd_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
 
   /* Move back in time the last time we calibrated so we scale the active
    * circuit when emitting a cell. */
@@ -81,15 +85,15 @@ test_cmux_ewfd_xmit_cell(void *arg)
   /* Grab old cell count. */
   old_cell_count = ewfd_data->cell_ewfd_ewma.cell_count;
 
-  ewfd_policy.notify_xmit_cells(&cmux, pol_data, &circ, circ_data, 1);
+  ewfd_ewma_policy.notify_xmit_cells(&cmux, pol_data, &circ, circ_data, 1);
 
   /* Our old cell count should be lower to what we have since we just emitted
    * a cell and thus we scale. */
   tt_double_op(old_cell_count, OP_LT, ewfd_data->cell_ewfd_ewma.cell_count);
 
  done:
-  ewfd_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
-  ewfd_policy.free_cmux_data(&cmux, pol_data);
+  ewfd_ewma_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.free_cmux_data(&cmux, pol_data);
 }
 
 static void *
@@ -110,7 +114,7 @@ cmux_ewfd_setup_test(const struct testcase_t *tc)
 }
 
 static void
-test_cmux_ewfd_notify_circ(void *arg)
+test_cmux_ewfd_ewma_notify_circ(void *arg)
 {
   circuitmux_t cmux; /* garbage */
   circuitmux_policy_data_t *pol_data = NULL;
@@ -120,15 +124,15 @@ test_cmux_ewfd_notify_circ(void *arg)
 
   (void) arg;
 
-  pol_data = ewfd_policy.alloc_cmux_data(&cmux);
+  pol_data = ewfd_ewma_policy.alloc_cmux_data(&cmux);
   tt_assert(pol_data);
-  circ_data = ewfd_policy.alloc_circ_data(&cmux, pol_data, &circ,
+  circ_data = ewfd_ewma_policy.alloc_circ_data(&cmux, pol_data, &circ,
                                           CELL_DIRECTION_OUT, 42);
   tt_assert(circ_data);
 
   /* Currently, notify_circ_active() ignores cmux and circ. They can not be
    * NULL so it is fine to pass garbage. */
-  ewfd_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.notify_circ_active(&cmux, pol_data, &circ, circ_data);
 
   /* We should have an active circuit in the queue so its EWMA value can be
    * tracked. */
@@ -136,19 +140,19 @@ test_cmux_ewfd_notify_circ(void *arg)
   tt_int_op(smartlist_len(ewma_pol_data->active_circuit_pqueue), OP_EQ, 1);
   tt_uint_op(ewma_pol_data->active_circuit_pqueue_last_recalibrated, OP_NE, 0);
 
-  ewfd_policy.notify_circ_inactive(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.notify_circ_inactive(&cmux, pol_data, &circ, circ_data);
   /* Should be removed from the active queue. */
   ewma_pol_data = TO_EWFD_POL_DATA(pol_data);
   tt_int_op(smartlist_len(ewma_pol_data->active_circuit_pqueue), OP_EQ, 0);
   tt_uint_op(ewma_pol_data->active_circuit_pqueue_last_recalibrated, OP_NE, 0);
 
  done:
-  ewfd_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
-  ewfd_policy.free_cmux_data(&cmux, pol_data);
+  ewfd_ewma_policy.free_circ_data(&cmux, pol_data, &circ, circ_data);
+  ewfd_ewma_policy.free_cmux_data(&cmux, pol_data);
 }
 
 static void
-test_cmux_ewfd_policy_circ_data(void *arg)
+test_cmux_ewfd_ewma_policy_circ_data(void *arg)
 {
  circuitmux_t cmux; /* garbage */
   circuitmux_policy_data_t pol_data; /* garbage */
@@ -160,7 +164,7 @@ test_cmux_ewfd_policy_circ_data(void *arg)
 
   /* Currently, alloc_circ_data() ignores every parameter _except_ the cell
    * direction so it is OK to pass garbage. They can not be NULL. */
-  circ_data = ewfd_policy.alloc_circ_data(&cmux, &pol_data, &circ,
+  circ_data = ewfd_ewma_policy.alloc_circ_data(&cmux, &pol_data, &circ,
                                           CELL_DIRECTION_OUT, 42);
   tt_assert(circ_data);
   tt_uint_op(circ_data->magic, OP_EQ, EWFD_POL_CIRC_DATA_MAGIC);
@@ -170,9 +174,9 @@ test_cmux_ewfd_policy_circ_data(void *arg)
   tt_double_op(ewma_data->cell_ewfd_ewma.cell_count, OP_LE, 0.0);
   tt_int_op(ewma_data->cell_ewfd_ewma.heap_index, OP_EQ, -1);
   tt_uint_op(ewma_data->cell_ewfd_ewma.is_for_p_chan, OP_EQ, 0);
-  ewfd_policy.free_circ_data(&cmux, &pol_data, &circ, circ_data);
+  ewfd_ewma_policy.free_circ_data(&cmux, &pol_data, &circ, circ_data);
 
-  circ_data = ewfd_policy.alloc_circ_data(&cmux, &pol_data, &circ,
+  circ_data = ewfd_ewma_policy.alloc_circ_data(&cmux, &pol_data, &circ,
                                           CELL_DIRECTION_IN, 42);
   tt_assert(circ_data);
   tt_uint_op(circ_data->magic, OP_EQ, EWFD_POL_CIRC_DATA_MAGIC);
@@ -184,11 +188,11 @@ test_cmux_ewfd_policy_circ_data(void *arg)
   tt_uint_op(ewma_data->cell_ewfd_ewma.is_for_p_chan, OP_EQ, 1);
 
  done:
-  ewfd_policy.free_circ_data(&cmux, &pol_data, &circ, circ_data);
+  ewfd_ewma_policy.free_circ_data(&cmux, &pol_data, &circ, circ_data);
 }
 
 static void
-test_cmux_ewfd_policy_data(void *arg)
+test_cmux_ewfd_ewma_policy_data(void *arg)
 {
   circuitmux_t cmux; /* garbage. */
   circuitmux_policy_data_t *pol_data = NULL;
@@ -196,7 +200,7 @@ test_cmux_ewfd_policy_data(void *arg)
 
   (void) arg;
 
-  pol_data = ewfd_policy.alloc_cmux_data(&cmux);
+  pol_data = ewfd_ewma_policy.alloc_cmux_data(&cmux);
   tt_assert(pol_data);
   tt_uint_op(pol_data->magic, OP_EQ, EWFD_POL_DATA_MAGIC);
 
@@ -206,9 +210,50 @@ test_cmux_ewfd_policy_data(void *arg)
   tt_uint_op(ewma_pol_data->active_circuit_pqueue_last_recalibrated, OP_NE, 0);
 
  done:
-  ewfd_policy.free_cmux_data(&cmux, pol_data);
+  ewfd_ewma_policy.free_cmux_data(&cmux, pol_data);
 }
 
+/** heap_test：默认min-heap
+ */
+struct heap_item {
+  int heap_idx;
+  int val;
+};
+
+static int my_heap_cmp(const void *it1, const void *it2) {
+  const struct heap_item *i1 = it1, *i2 = it2;
+  return i1->val - i2->val;
+};
+
+static void
+test_cmux_ewfd_heap_explore(void *arg)
+{
+  smartlist_t *test_heap = smartlist_new();
+  struct heap_item items[] = {
+      {1, 11},
+      {2, 22},
+      {3, 33},
+      {4, 44},
+      {5, 55},
+  };
+
+  for (int i = 0; i < 5; i++) {
+    smartlist_pqueue_add(test_heap, my_heap_cmp, offsetof(struct heap_item, heap_idx), &items[i]);
+  }
+
+  SMARTLIST_FOREACH_BEGIN(
+      test_heap,
+      struct heap_item*, it) {
+        printf("heap_idx: %d, val: %d\n", it->heap_idx, it->val);
+  } SMARTLIST_FOREACH_END(it);
+
+  struct heap_item * it = smartlist_pqueue_pop(test_heap, my_heap_cmp, offsetof(struct heap_item, heap_idx));
+  printf("pop: %d\n", it->val);
+  it = smartlist_pqueue_pop(test_heap, my_heap_cmp, offsetof(struct heap_item, heap_idx));
+  printf("pop: %d\n", it->val);
+  it = smartlist_pqueue_pop(test_heap, my_heap_cmp, offsetof(struct heap_item, heap_idx));
+  printf("pop: %d\n", it->val);
+}
 
 static int
 cmux_ewfd_cleanup_test(const struct testcase_t *tc, void *ptr)
@@ -231,11 +276,12 @@ static struct testcase_setup_t cmux_ewfd_test_setup = {
   { #name, test_cmux_ewfd_##name, TT_FORK, &cmux_ewfd_test_setup, NULL }
 
 struct testcase_t circuitmux_ewfd_tests[] = {
-  TEST_CMUX_EWFD(active_circuit), // checked
-  TEST_CMUX_EWFD(policy_data),
-  TEST_CMUX_EWFD(policy_circ_data),
-  TEST_CMUX_EWFD(notify_circ),
-  TEST_CMUX_EWFD(xmit_cell),
+  TEST_CMUX_EWFD(ewma_active_circuit), // checked
+  TEST_CMUX_EWFD(ewma_policy_data),
+  TEST_CMUX_EWFD(ewma_policy_circ_data),
+  TEST_CMUX_EWFD(ewma_notify_circ),
+  TEST_CMUX_EWFD(ewma_xmit_cell),
+  TEST_CMUX_EWFD(heap_explore),
 
   END_OF_TESTCASES
 };

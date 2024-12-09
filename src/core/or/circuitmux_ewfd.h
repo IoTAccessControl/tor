@@ -5,7 +5,7 @@
 #include "core/or/circuitmux.h"
 
 /* The public EWFD policy callbacks object. */
-extern circuitmux_policy_t ewfd_policy;
+extern circuitmux_policy_t ewfd_ewma_policy;
 
 
 /* Externally visible eWFD functions */
@@ -29,6 +29,7 @@ struct cell_ewfd_ewma_t {
    * since the start of this tick have weight greater than 1.0; ones sent
    * earlier have less weight. */
   uint32_t last_adjusted_tick;
+
   /** The EWMA of the cell count. */
   double cell_count;
   /** True iff this is the cell count for a circuit's previous
@@ -61,12 +62,24 @@ typedef struct ewfd_policy_data_t {
 struct ewfd_policy_circ_data_t {
   circuitmux_policy_circ_data_t base_;
 
+  /** ewma: 先发送之前发送包最少的队列
+   */
+  
   /**
    * The EWMA count for the number of cells flushed from this circuit
    * onto this circuitmux.  Used to determine which circuit to flush
    * from next.  This was formerly in circuit_t and or_circuit_t.
    */
   cell_ewfd_ewma_t cell_ewfd_ewma;
+
+  /**
+   * 基于delay来调度，检查一个时间range：
+   * 方法-1. 优选选择包最多的队列
+   * 方法-2. 优先发送下个发送ti更接近的队列，
+   * 方法-3. 优先发送真实包最多的队列
+   */
+  uint64_t next_send_tick;
+  uint32_t next_send_cnt;
 
   /**
    * Pointer back to the circuit_t this is for; since we're separating

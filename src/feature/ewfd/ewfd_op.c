@@ -295,6 +295,9 @@ static void set_encrypt_drop_cell(circuit_t *circ, cell_t *cell) {
 	}
 }
 
+/**
+*
+*/
 bool ewfd_paddding_op_delay_impl(circuit_t *circ, uint32_t trigger_ms, uint32_t pkt_num) {
 	ewfd_delay_event_st delay_event = {0};
 	delay_event.magic = EWFD_DELAY_MAGIC;

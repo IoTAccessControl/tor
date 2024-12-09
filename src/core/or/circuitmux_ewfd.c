@@ -6,7 +6,11 @@
 #include "lib/crypt_ops/crypto_util.h"
 #include <math.h>
 
-/*** Static declarations for circuitmux_ewma.c ***/
+
+/*** ewfd delay policy */
+
+
+/*** Static declarations for circuitmux_ewfd.c ewma policy***/
 
 #define EWMA_TICK_LEN_DEFAULT 10
 #define EWMA_TICK_LEN_MIN 1
@@ -26,66 +30,65 @@ static double ewfd_ewma_scale_factor = 0.1;
 /** The natural logarithm of 0.5. */
 #define LOG_ONEHALF -0.69314718055994529
 
-static void add_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma);
-static int compare_cell_ewfd_counts(const void *p1, const void *p2);
-static circuit_t * cell_ewfd_to_circuit(cell_ewfd_ewma_t *ewfd_conf);
-static inline double get_scale_factor(unsigned from_tick, unsigned to_tick);
-static cell_ewfd_ewma_t * pop_first_cell_ewfd(ewfd_policy_data_t *pol);
-static void remove_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma);
+static void add_cell_ewfd_ewma(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma);
+static int compare_cell_ewfd_ewma_counts(const void *p1, const void *p2);
+static circuit_t * cell_ewfd_ewma_to_circuit(cell_ewfd_ewma_t *ewfd_conf);
+static inline double get_ewma_scale_factor(unsigned from_tick, unsigned to_tick);
+static cell_ewfd_ewma_t * pop_first_cell_ewma_ewfd(ewfd_policy_data_t *pol);
+static void remove_cell_ewfd_ewma(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma);
 static void scale_single_cell_ewfd_ewma(cell_ewfd_ewma_t *ewma, unsigned cur_tick);
-static void scale_active_circuits(ewfd_policy_data_t *pol,
+static void scale_active_circuits_ewma(ewfd_policy_data_t *pol,
                                   unsigned cur_tick);
 
-/*** Circuitmux policy methods ***/
+/*** Circuitmux ewfd_ewma policy methods ***/
 
-static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux);
-static void ewfd_free_cmux_data(circuitmux_t *cmux,
+static circuitmux_policy_data_t * ewfd_ewma_alloc_cmux_data(circuitmux_t *cmux);
+static void ewfd_ewma_free_cmux_data(circuitmux_t *cmux,
                                 circuitmux_policy_data_t *pol_data);
 static circuitmux_policy_circ_data_t *
-ewfd_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
+ewfd_alloc_circ_ewma_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
                      circuit_t *circ, cell_direction_t direction,
                      unsigned int cell_count);
 static void
-ewfd_free_circ_data(circuitmux_t *cmux,
+ewfd_free_circ_ewma_data(circuitmux_t *cmux,
                     circuitmux_policy_data_t *pol_data,
                     circuit_t *circ,
                     circuitmux_policy_circ_data_t *pol_circ_data);
 static void
-ewfd_notify_circ_active(circuitmux_t *cmux,
+ewfd_notify_circ_ewma_active(circuitmux_t *cmux,
                         circuitmux_policy_data_t *pol_data,
                         circuit_t *circ,
                         circuitmux_policy_circ_data_t *pol_circ_data);
 static void
-ewfd_notify_circ_inactive(circuitmux_t *cmux,
+ewfd_notify_circ_ewma_inactive(circuitmux_t *cmux,
                           circuitmux_policy_data_t *pol_data,
                           circuit_t *circ,
                           circuitmux_policy_circ_data_t *pol_circ_data);
 static void
-ewfd_notify_xmit_cells(circuitmux_t *cmux,
+ewfd_notify_xmit_ewma_cells(circuitmux_t *cmux,
                        circuitmux_policy_data_t *pol_data,
                        circuit_t *circ,
                        circuitmux_policy_circ_data_t *pol_circ_data,
                        unsigned int n_cells);
 static circuit_t *
-ewfd_pick_active_circuit(circuitmux_t *cmux,
+ewfd_pick_active_circuit_ewma(circuitmux_t *cmux,
                          circuitmux_policy_data_t *pol_data);
 static int
-ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
+ewfd_cmp_cmux_ewma(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
               circuitmux_t *cmux_2, circuitmux_policy_data_t *pol_data_2);
 
 /*** EWFD circuitmux_policy_t method table ***/
-
-circuitmux_policy_t ewfd_policy = {
-  /*.alloc_cmux_data =*/ ewfd_alloc_cmux_data,
-  /*.free_cmux_data =*/ ewfd_free_cmux_data,
-  /*.alloc_circ_data =*/ ewfd_alloc_circ_data,
-  /*.free_circ_data =*/ ewfd_free_circ_data,
-  /*.notify_circ_active =*/ ewfd_notify_circ_active,
-  /*.notify_circ_inactive =*/ ewfd_notify_circ_inactive,
+circuitmux_policy_t ewfd_ewma_policy = {
+  /*.alloc_cmux_data =*/ ewfd_ewma_alloc_cmux_data,
+  /*.free_cmux_data =*/ ewfd_ewma_free_cmux_data,
+  /*.alloc_circ_data =*/ ewfd_alloc_circ_ewma_data,
+  /*.free_circ_data =*/ ewfd_free_circ_ewma_data,
+  /*.notify_circ_active =*/ ewfd_notify_circ_ewma_active,
+  /*.notify_circ_inactive =*/ ewfd_notify_circ_ewma_inactive,
   /*.notify_set_n_cells =*/ NULL, /* EWMA doesn't need this */
-  /*.notify_xmit_cells =*/ ewfd_notify_xmit_cells,
-  /*.pick_active_circuit =*/ ewfd_pick_active_circuit,
-  /*.cmp_cmux =*/ ewfd_cmp_cmux
+  /*.notify_xmit_cells =*/ ewfd_notify_xmit_ewma_cells,
+  /*.pick_active_circuit =*/ ewfd_pick_active_circuit_ewma,
+  /*.cmp_cmux =*/ ewfd_cmp_cmux_ewma
 };
 
 
@@ -109,9 +112,10 @@ cell_ewfd_get_tick(void)
   return current_tick_num + msec_diff / (1000*ewfd_ewma_tick_len);
 }
 
-/* */
+/* 
+*/
 // done
-static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux) {
+static circuitmux_policy_data_t * ewfd_ewma_alloc_cmux_data(circuitmux_t *cmux) {
   ewfd_policy_data_t *pol = NULL;
 
   tor_assert(cmux);
@@ -119,13 +123,14 @@ static circuitmux_policy_data_t * ewfd_alloc_cmux_data(circuitmux_t *cmux) {
   pol = tor_malloc_zero(sizeof(*pol));
   pol->base_.magic = EWFD_POL_DATA_MAGIC;
   pol->active_circuit_pqueue = smartlist_new();
+  // pol->
   pol->active_circuit_pqueue_last_recalibrated = cell_ewfd_get_tick();
 
   return TO_CMUX_POL_DATA(pol);
 }
 
 // done
-static void ewfd_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data) {
+static void ewfd_ewma_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data) {
   ewfd_policy_data_t *pol = NULL;
 
   tor_assert(cmux);
@@ -140,7 +145,7 @@ static void ewfd_free_cmux_data(circuitmux_t *cmux, circuitmux_policy_data_t *po
 
 // done
 static circuitmux_policy_circ_data_t *
-ewfd_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
+ewfd_alloc_circ_ewma_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
                      circuit_t *circ, cell_direction_t direction,
                      unsigned int cell_count) {
 
@@ -167,7 +172,7 @@ ewfd_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
 
 // done
 static void
-ewfd_free_circ_data(circuitmux_t *cmux,
+ewfd_free_circ_ewma_data(circuitmux_t *cmux,
                     circuitmux_policy_data_t *pol_data,
                     circuit_t *circ,
                     circuitmux_policy_circ_data_t *pol_circ_data) {
@@ -186,7 +191,7 @@ ewfd_free_circ_data(circuitmux_t *cmux,
 
 // done
 static void
-ewfd_notify_circ_active(circuitmux_t *cmux,
+ewfd_notify_circ_ewma_active(circuitmux_t *cmux,
                         circuitmux_policy_data_t *pol_data,
                         circuit_t *circ,
                         circuitmux_policy_circ_data_t *pol_circ_data) {
@@ -203,15 +208,15 @@ ewfd_notify_circ_active(circuitmux_t *cmux,
 
   if (cdata->cell_ewfd_ewma.heap_index != -1) {
     /* This circuit is already in the queue; remove it */
-    remove_cell_ewfd(pol, &(cdata->cell_ewfd_ewma));
+    remove_cell_ewfd_ewma(pol, &(cdata->cell_ewfd_ewma));
   }
 
-  add_cell_ewfd(pol, &(cdata->cell_ewfd_ewma));
+  add_cell_ewfd_ewma(pol, &(cdata->cell_ewfd_ewma));
 }
 
 // done
 static void
-ewfd_notify_circ_inactive(circuitmux_t *cmux,
+ewfd_notify_circ_ewma_inactive(circuitmux_t *cmux,
                           circuitmux_policy_data_t *pol_data,
                           circuit_t *circ,
                           circuitmux_policy_circ_data_t *pol_circ_data) {
@@ -226,12 +231,12 @@ ewfd_notify_circ_inactive(circuitmux_t *cmux,
   pol = TO_EWFD_POL_DATA(pol_data);
   cdata = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
 
-  remove_cell_ewfd(pol, &(cdata->cell_ewfd_ewma));
+  remove_cell_ewfd_ewma(pol, &(cdata->cell_ewfd_ewma));
 }
 
 // done
 static void
-ewfd_notify_xmit_cells(circuitmux_t *cmux,
+ewfd_notify_xmit_ewma_cells(circuitmux_t *cmux,
                        circuitmux_policy_data_t *pol_data,
                        circuit_t *circ,
                        circuitmux_policy_circ_data_t *pol_circ_data,
@@ -255,7 +260,7 @@ ewfd_notify_xmit_cells(circuitmux_t *cmux,
   tick = cell_ewfd_ewma_get_current_tick_and_fraction(&fractional_tick);
 
   if (tick != pol->active_circuit_pqueue_last_recalibrated) {
-    scale_active_circuits(pol, tick);
+    scale_active_circuits_ewma(pol, tick);
   }
 
   /* How much do we adjust the cell count in cell_ewma by? */
@@ -270,14 +275,16 @@ ewfd_notify_xmit_cells(circuitmux_t *cmux,
    * Since we just sent on this circuit, it should be at the head of
    * the queue.  Pop the head, assert that it matches, then re-add.
    */
-  tmp = pop_first_cell_ewfd(pol);
+  tmp = pop_first_cell_ewma_ewfd(pol);
   tor_assert(tmp == cell_ewma);
-  add_cell_ewfd(pol, cell_ewma);
+  add_cell_ewfd_ewma(pol, cell_ewma);
 }
 
-// done
+/**
+ * 
+ */
 static circuit_t *
-ewfd_pick_active_circuit(circuitmux_t *cmux,
+ewfd_pick_active_circuit_ewma(circuitmux_t *cmux,
                          circuitmux_policy_data_t *pol_data) {
   ewfd_policy_data_t *pol = NULL;
   circuit_t *circ = NULL;
@@ -289,7 +296,7 @@ ewfd_pick_active_circuit(circuitmux_t *cmux,
   if (smartlist_len(pol->active_circuit_pqueue) > 0) {
     /* Get the head of the queue */
     cell_ewfd_ewma = smartlist_get(pol->active_circuit_pqueue, 0);
-    circ = cell_ewfd_to_circuit(cell_ewfd_ewma);
+    circ = cell_ewfd_ewma_to_circuit(cell_ewfd_ewma);
   }
 
   EWFD_LOG("Picked circuit %p", circ);
@@ -299,7 +306,7 @@ ewfd_pick_active_circuit(circuitmux_t *cmux,
 
 
 // done
-static int ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
+static int ewfd_cmp_cmux_ewma(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
               circuitmux_t *cmux_2, circuitmux_policy_data_t *pol_data_2) {
   ewfd_policy_data_t *p1 = NULL, *p2 = NULL;
   cell_ewfd_ewma_t *ce1 = NULL, *ce2 = NULL;
@@ -325,7 +332,7 @@ static int ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_dat
     /* Got both of them? */
     if (ce1 != NULL && ce2 != NULL) {
       /* Pick whichever one has the better best circuit */
-      return compare_cell_ewfd_counts(ce1, ce2);
+      return compare_cell_ewfd_ewma_counts(ce1, ce2);
     } else {
       if (ce1 != NULL) {
         /* We only have a circuit on cmux_1, so prefer it */
@@ -345,7 +352,7 @@ static int ewfd_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_dat
 }
 
 // done
-static int compare_cell_ewfd_counts(const void *p1, const void *p2) 
+static int compare_cell_ewfd_ewma_counts(const void *p1, const void *p2) 
 {
   const cell_ewfd_ewma_t *ewma1 = p1, *ewma2 = p2;
   if (ewma1->cell_count < ewma2->cell_count)
@@ -357,7 +364,7 @@ static int compare_cell_ewfd_counts(const void *p1, const void *p2)
 
 // done
 static circuit_t *
-cell_ewfd_to_circuit(cell_ewfd_ewma_t *ewma)
+cell_ewfd_ewma_to_circuit(cell_ewfd_ewma_t *ewma)
 {
   ewfd_policy_circ_data_t *cdata = NULL;
 
@@ -428,7 +435,7 @@ void cmux_ewfd_set_options(const or_options_t *options, const networkstatus_t *c
             ewfd_ewma_scale_factor, ewfd_ewma_tick_len);
 }
 
-static inline double get_scale_factor(unsigned from_tick, unsigned to_tick)
+static inline double get_ewma_scale_factor(unsigned from_tick, unsigned to_tick)
 {
   return pow(ewfd_ewma_scale_factor, to_tick - from_tick);
 }
@@ -436,7 +443,7 @@ static inline double get_scale_factor(unsigned from_tick, unsigned to_tick)
 
 /* 修改所有节点的ewma值
 */
-static void scale_active_circuits(ewfd_policy_data_t *pol,
+static void scale_active_circuits_ewma(ewfd_policy_data_t *pol,
                                   unsigned cur_tick)
 {
   double factor;
@@ -445,7 +452,7 @@ static void scale_active_circuits(ewfd_policy_data_t *pol,
   tor_assert(pol->active_circuit_pqueue);
 
   factor =
-    get_scale_factor(
+    get_ewma_scale_factor(
       pol->active_circuit_pqueue_last_recalibrated,
       cur_tick);
   /** Ordinarily it isn't okay to change the value of an element in a heap,
@@ -462,22 +469,23 @@ static void scale_active_circuits(ewfd_policy_data_t *pol,
 }
 
 
-static void add_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
+static void add_cell_ewfd_ewma(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
 {
   tor_assert(pol);
   tor_assert(ewma);
 
-    scale_single_cell_ewfd_ewma(
-      ewma,
+  scale_single_cell_ewfd_ewma(ewma,
       pol->active_circuit_pqueue_last_recalibrated);
 
-  smartlist_add(pol->active_circuit_pqueue, ewma);
-  ewma->heap_index = smartlist_len(pol->active_circuit_pqueue) - 1;
-  EWFD_LOG("Added circuit %p", cell_ewfd_to_circuit(ewma));
+  smartlist_pqueue_add(pol->active_circuit_pqueue,
+                       compare_cell_ewfd_ewma_counts,
+                       offsetof(cell_ewfd_ewma_t, heap_index),
+                       ewma);
+  EWFD_LOG("Added circuit %p", cell_ewfd_ewma_to_circuit(ewma));
 }
 
 // done
-static void remove_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
+static void remove_cell_ewfd_ewma(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
 {
   tor_assert(pol);
   tor_assert(pol->active_circuit_pqueue);
@@ -485,24 +493,24 @@ static void remove_cell_ewfd(ewfd_policy_data_t *pol, cell_ewfd_ewma_t *ewma)
   tor_assert(ewma->heap_index != -1);
 
   smartlist_pqueue_remove(pol->active_circuit_pqueue,
-                          compare_cell_ewfd_counts,
+                          compare_cell_ewfd_ewma_counts,
                           offsetof(cell_ewfd_ewma_t, heap_index),
                           ewma);
 }
 
-static cell_ewfd_ewma_t * pop_first_cell_ewfd(ewfd_policy_data_t *pol)
+static cell_ewfd_ewma_t * pop_first_cell_ewma_ewfd(ewfd_policy_data_t *pol)
 {
     tor_assert(pol);
   tor_assert(pol->active_circuit_pqueue);
 
   return smartlist_pqueue_pop(pol->active_circuit_pqueue,
-                              compare_cell_ewfd_counts,
+                              compare_cell_ewfd_ewma_counts,
                               offsetof(cell_ewfd_ewma_t, heap_index));
 }
 
 static void scale_single_cell_ewfd_ewma(cell_ewfd_ewma_t *ewma, unsigned cur_tick)
 {
-  double factor = get_scale_factor(ewma->last_adjusted_tick, cur_tick);
+  double factor = get_ewma_scale_factor(ewma->last_adjusted_tick, cur_tick);
   ewma->cell_count *= factor;
   ewma->last_adjusted_tick = cur_tick;
 }
