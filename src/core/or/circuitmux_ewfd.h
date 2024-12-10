@@ -7,6 +7,8 @@
 /* The public EWFD policy callbacks object. */
 extern circuitmux_policy_t ewfd_ewma_policy;
 
+extern circuitmux_policy_t ewfd_delay_policy;
+
 
 /* Externally visible eWFD functions */
 void cmux_ewfd_set_options(const or_options_t *options,
@@ -40,6 +42,19 @@ struct cell_ewfd_ewma_t {
   int heap_index;
 };
 
+typedef struct cell_ewfd_delay_t {
+    /**
+   * 基于delay来调度，检查一个时间range：
+   * 方法-1. 优选选择包最多的队列
+   * 方法-2. 优先发送下个发送ti更接近的队列，
+   * 方法-3. 优先发送真实包最多的队列
+   */
+  uint64_t next_send_tick;
+  uint32_t next_send_cnt; // next dump+real packet that need to be sent
+  uint32_t all_real_pkt;  // all real packets on queue
+  int heap_index;
+} cell_ewfd_delay_t;
+
 typedef struct ewfd_policy_data_t {
   circuitmux_policy_data_t base_;
 
@@ -72,14 +87,9 @@ struct ewfd_policy_circ_data_t {
    */
   cell_ewfd_ewma_t cell_ewfd_ewma;
 
-  /**
-   * 基于delay来调度，检查一个时间range：
-   * 方法-1. 优选选择包最多的队列
-   * 方法-2. 优先发送下个发送ti更接近的队列，
-   * 方法-3. 优先发送真实包最多的队列
+  /** settings for delay policy
    */
-  uint64_t next_send_tick;
-  uint32_t next_send_cnt;
+  cell_ewfd_delay_t cell_ewfd_delay;
 
   /**
    * Pointer back to the circuit_t this is for; since we're separating

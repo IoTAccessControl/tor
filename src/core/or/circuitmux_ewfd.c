@@ -1,3 +1,10 @@
+#include "lib/container/smartlist.h"
+#include "lib/log/util_bug.h"
+#include "lib/malloc/malloc.h"
+#include "lib/smartlist_core/smartlist_foreach.h"
+#include "lib/time/compat_time.h"
+#include "core/or/circuitmux.h"
+#include <stdint.h>
 #define CIRCUITMUX_EWFD_PRIVATE
 
 #include "circuitmux_ewfd.h"
@@ -7,9 +14,296 @@
 #include <math.h>
 
 
-/*** ewfd delay policy */
+/**===============================================================================
+ * EWFD Delay policy
+ * ===============================================================================
+ * 1 channel (policy_data) -> n circuits (policy_circ_data)
+ */
+
+/*** Circuitmux ewfd delay policy methods ***/
+static circuitmux_policy_data_t * ewfd_delay_alloc_cmux_data(circuitmux_t *cmux);
+static void ewfd_delay_free_cmux_data(circuitmux_t *cmux,
+                                circuitmux_policy_data_t *pol_data);
+static circuitmux_policy_circ_data_t *
+ewfd_delay_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
+                     circuit_t *circ, cell_direction_t direction,
+                     unsigned int cell_count);
+static void
+ewfd_delay_free_circ_data(circuitmux_t *cmux,
+                    circuitmux_policy_data_t *pol_data,
+                    circuit_t *circ,
+                    circuitmux_policy_circ_data_t *pol_circ_data);
+static void
+ewfd_delay_notify_circ_active(circuitmux_t *cmux,
+                        circuitmux_policy_data_t *pol_data,
+                        circuit_t *circ,
+                        circuitmux_policy_circ_data_t *pol_circ_data);
+static void
+ewfd_delay_notify_circ_inactive(circuitmux_t *cmux,
+                          circuitmux_policy_data_t *pol_data,
+                          circuit_t *circ,
+                          circuitmux_policy_circ_data_t *pol_circ_data);
+static void
+ewfd_delay_set_n_cells(circuitmux_t *cmux,
+                             circuitmux_policy_data_t *pol_data,
+                             circuit_t *circ,
+                             circuitmux_policy_circ_data_t *pol_circ_data,
+                             unsigned int n_cells);
+static void
+ewfd_delay_notify_xmit_cells(circuitmux_t *cmux,
+                       circuitmux_policy_data_t *pol_data,
+                       circuit_t *circ,
+                       circuitmux_policy_circ_data_t *pol_circ_data,
+                       unsigned int n_cells);
+static circuit_t *
+ewfd_delay_pick_active_circuit(circuitmux_t *cmux,
+                         circuitmux_policy_data_t *pol_data);
+static int
+ewfd_delay_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
+              circuitmux_t *cmux_2, circuitmux_policy_data_t *pol_data_2);
+
+/** 调度函数：
+ */
+static int compare_cell_ewfd_circ_delay(const void *p1, const void *p2)  {
+  const cell_ewfd_delay_t *a = p1, *b = p2;
+  if (a->all_real_pkt > b->all_real_pkt) {
+    return -1;
+  } else if (a->all_real_pkt < b->all_real_pkt) {
+    return 1;
+  }
+  return 0;
+}
 
 
+circuitmux_policy_t ewfd_delay_policy = {
+  /*.alloc_cmux_data =*/ ewfd_delay_alloc_cmux_data,
+  /*.free_cmux_data =*/ ewfd_delay_free_cmux_data,
+  /*.alloc_circ_data =*/ ewfd_delay_alloc_circ_data,
+  /*.free_circ_data =*/ ewfd_delay_free_circ_data,
+  /*.notify_circ_active =*/ ewfd_delay_notify_circ_active,
+  /*.notify_circ_inactive =*/ ewfd_delay_notify_circ_inactive,
+  /*.notify_set_n_cells =*/ ewfd_delay_set_n_cells, /* EWMA doesn't need this */
+  /*.notify_xmit_cells =*/ ewfd_delay_notify_xmit_cells,
+  /*.pick_active_circuit =*/ ewfd_delay_pick_active_circuit,
+  /*.cmp_cmux =*/ ewfd_delay_cmp_cmux
+};
+
+static circuitmux_policy_data_t * ewfd_delay_alloc_cmux_data(circuitmux_t *cmux) {
+  tor_assert(cmux);
+
+  ewfd_policy_data_t *pol = tor_malloc_zero(sizeof(*pol));
+  pol->base_.magic = EWFD_POL_DATA_MAGIC;
+  pol->active_circuit_pqueue = smartlist_new();
+  // pol->active_circuit_pqueue_last_recalibrated = (uint32_t) monotime_absolute_msec() / 1000;
+
+  return TO_CMUX_POL_DATA(pol);
+}
+
+static void ewfd_delay_free_cmux_data(circuitmux_t *cmux,
+                                circuitmux_policy_data_t *pol_data) {
+  tor_assert(cmux);
+  if (!pol_data) return;
+
+  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  smartlist_free(pol->active_circuit_pqueue);
+  memwipe(pol, 0xda, sizeof(ewfd_policy_data_t));
+  tor_free(pol);
+}
+
+static circuitmux_policy_circ_data_t *
+ewfd_delay_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_data,
+                     circuit_t *circ, cell_direction_t direction,
+                     unsigned int cell_count) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+
+  ewfd_policy_circ_data_t *pol_circ = tor_malloc_zero(sizeof(*pol_circ));
+  pol_circ->base_.magic = EWFD_POL_CIRC_DATA_MAGIC;
+  pol_circ->circ = circ;
+  pol_circ->cell_ewfd_delay.heap_index = -1;
+
+  return TO_CMUX_POL_CIRC_DATA(pol_circ);
+}
+
+static void ewfd_delay_free_circ_data(circuitmux_t *cmux,
+                    circuitmux_policy_data_t *pol_data,
+                    circuit_t *circ,
+                    circuitmux_policy_circ_data_t *pol_circ_data) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+  if (!pol_circ_data) return;
+  ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+
+  memwipe(circ_data, 0xdc, sizeof(ewfd_policy_circ_data_t));
+  tor_free(circ_data);
+}
+
+static void ewfd_delay_notify_circ_active(circuitmux_t *cmux,
+                        circuitmux_policy_data_t *pol_data,
+                        circuit_t *circ,
+                        circuitmux_policy_circ_data_t *pol_circ_data) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+  tor_assert(pol_circ_data);
+
+  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+  cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
+
+  // add current circuit to active_circuit_pqueue heap
+  // first remove then add
+  if (circ_data->cell_ewfd_delay.heap_index != -1) {
+    smartlist_pqueue_remove(pol->active_circuit_pqueue,
+                      compare_cell_ewfd_circ_delay,
+                      offsetof(cell_ewfd_delay_t, heap_index),
+                      delay_item);
+  }
+
+  smartlist_pqueue_add(pol->active_circuit_pqueue,
+                      compare_cell_ewfd_circ_delay,
+                      offsetof(cell_ewfd_delay_t, heap_index),
+                      delay_item);
+}
+
+static void ewfd_delay_notify_circ_inactive(circuitmux_t *cmux,
+                          circuitmux_policy_data_t *pol_data,
+                          circuit_t *circ,
+                          circuitmux_policy_circ_data_t *pol_circ_data) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+  tor_assert(pol_circ_data);
+
+  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+  cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
+
+  // 删除并维持小根堆
+  smartlist_pqueue_remove(pol->active_circuit_pqueue,
+                      compare_cell_ewfd_circ_delay,
+                      offsetof(cell_ewfd_delay_t, heap_index),
+                      delay_item);
+}
+
+static void ewfd_delay_set_n_cells(circuitmux_t *cmux,
+                             circuitmux_policy_data_t *pol_data,
+                             circuit_t *circ,
+                             circuitmux_policy_circ_data_t *pol_circ_data,
+                             unsigned int n_cells) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+  tor_assert(pol_circ_data);
+
+  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+  cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
+
+  // 更新包数量
+  // TODO： 1. 遍历发送队列来更新包数量 或者 2. 新api主动设置数量
+  delay_item->all_real_pkt = n_cells;
+  delay_item->next_send_cnt = n_cells;
+
+  // 更新小根堆 pop -> push
+  if (delay_item->heap_index != -1) {
+    smartlist_pqueue_remove(pol->active_circuit_pqueue,
+                        compare_cell_ewfd_circ_delay,
+                        offsetof(cell_ewfd_delay_t, heap_index),
+                        delay_item);
+  }
+  smartlist_pqueue_add(pol->active_circuit_pqueue,
+                      compare_cell_ewfd_circ_delay,
+                      offsetof(cell_ewfd_delay_t, heap_index),
+                      delay_item);
+}
+
+// n_cells: 发送的包数量（dummy + real, 优先发real）
+static void ewfd_delay_notify_xmit_cells(circuitmux_t *cmux,
+                       circuitmux_policy_data_t *pol_data,
+                       circuit_t *circ,
+                       circuitmux_policy_circ_data_t *pol_circ_data,
+                       unsigned int n_cells) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+  tor_assert(circ);
+  tor_assert(pol_circ_data);
+
+  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
+  cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
+
+  // 更新包数量
+  tor_assert(delay_item->next_send_cnt >= n_cells);
+  delay_item->next_send_cnt -= n_cells;
+  if (delay_item->all_real_pkt > n_cells) {
+    delay_item->all_real_pkt -= n_cells;
+  } else {
+    delay_item->all_real_pkt = 0;
+  }
+
+  // 更新小根堆 pop -> push
+  cell_ewfd_delay_t *tmp = smartlist_pqueue_pop(pol->active_circuit_pqueue,
+                      compare_cell_ewfd_circ_delay,
+                      offsetof(cell_ewfd_delay_t, heap_index));
+  tor_assert(tmp == delay_item);
+  smartlist_pqueue_add(pol->active_circuit_pqueue,
+                      compare_cell_ewfd_circ_delay,
+                      offsetof(cell_ewfd_delay_t, heap_index),
+                      delay_item);
+}
+
+static circuit_t * ewfd_delay_pick_active_circuit(circuitmux_t *cmux,
+                         circuitmux_policy_data_t *pol_data) {
+  tor_assert(cmux);
+  tor_assert(pol_data);
+
+  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  cell_ewfd_delay_t *delay_item = smartlist_pqueue_pop(pol->active_circuit_pqueue,
+                                        compare_cell_ewfd_circ_delay,
+                                        offsetof(cell_ewfd_delay_t, heap_index));
+  ewfd_policy_circ_data_t *circ_data = SUBTYPE_P(delay_item, ewfd_policy_circ_data_t, cell_ewfd_delay);
+  tor_assert(circ_data);
+
+  return circ_data->circ;
+}
+
+// 先发送包多的队列
+static int ewfd_delay_cmp_cmux(circuitmux_t *cmux_1, circuitmux_policy_data_t *pol_data_1,
+              circuitmux_t *cmux_2, circuitmux_policy_data_t *pol_data_2) {
+  tor_assert(cmux_1);
+  tor_assert(pol_data_1);
+  tor_assert(cmux_2);
+  tor_assert(pol_data_2);
+
+  ewfd_policy_data_t *pol_1 = TO_EWFD_POL_DATA(pol_data_1);
+  ewfd_policy_data_t *pol_2 = TO_EWFD_POL_DATA(pol_data_2);
+
+  int pkt_num_1 = 0, pkt_num_2 = 0;
+
+  SMARTLIST_FOREACH_BEGIN(pol_1->active_circuit_pqueue, struct cell_ewfd_delay_t *, it) {
+    pkt_num_1 += it->all_real_pkt;
+  } SMARTLIST_FOREACH_END(it);
+
+  SMARTLIST_FOREACH_BEGIN(pol_2->active_circuit_pqueue, struct cell_ewfd_delay_t *, it) {
+    pkt_num_2 += it->all_real_pkt;
+  } SMARTLIST_FOREACH_END(it);
+
+  if (pkt_num_1 > pkt_num_2) {
+    return 1;
+  } else if (pkt_num_1 < pkt_num_2) {
+    return -1;
+  }
+
+  return 0;
+}
+
+/**===============================================================================
+ * EWFD EWMA policy
+ * ===============================================================================
+ */
 /*** Static declarations for circuitmux_ewfd.c ewma policy***/
 
 #define EWMA_TICK_LEN_DEFAULT 10
