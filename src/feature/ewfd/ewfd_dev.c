@@ -1,6 +1,7 @@
 #include "core/or/or.h"
 #define EWFD_USE_TEMP_LOG
 #include "feature/ewfd/debug.h"
+#include "feature/ewfd/ewfd_conf.h"
 
 #include "feature/ewfd/ewfd_dev.h"
 #include "feature/ewfd/circuit_padding.h"
@@ -193,7 +194,12 @@ static uint64_t dev_gan_on_tick(ewfd_circ_status_st *ewfd_status) {
 		uint64_t send_ti = now_ti;
 		send_ti += 2000; // delay 2s
 		EWFD_TEMP_LOG("----------------gan add delay packet last_ti: %lu cur_ti: %lu trigger-ti: %lu", last_ti, now_ti, send_ti);
+		
+	#ifdef EWFD_USE_SIMPLE_DELAY
 		ewfd_add_delay_packet(ewfd_status->on_circ, now_ti, send_ti, 10);
+	#elif defined(EWFD_USE_ADVANCE_DELAY)
+		ewfd_op_delay(ewfd_status->on_circ, now_ti, send_ti, 10);
+	#endif
 
 		// 直接发送drop包，测试功能
 		// ewfd_add_dummy_packet(ewfd_status->on_circ, send_ti);
@@ -226,4 +232,5 @@ uint64_t ewfd_default_padding_unit(ewfd_circ_status_st *ewfd_status) {
 #elif defined (USE_DEV_GAN)
 	return dev_gan_on_tick(ewfd_status);
 #endif
+	return 0;
 }

@@ -8,7 +8,10 @@
 // add to global timer and sending queue
 // are implemented in ewfd.c
 extern int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti);
-extern int ewfd_add_delay_packet(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_us, uint32_t pkt_num);
+// 基于delay事件的实现  
+extern int ewfd_add_delay_packet(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_to_ms, uint32_t pkt_num);
+// 基于拥塞控制（自定义sleep队列）的实现  
+extern int ewfd_op_delay(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_to_ms, uint32_t pkt_num);
 
 /* 判断是否是delay包
 等待delay_us后发送n个包
@@ -26,5 +29,7 @@ bool ewfd_paddding_op_delay_notify_impl(circuit_t *circ);
 
 // 发送dummy包
 bool ewfd_paddding_op_dummy_impl(circuit_t *circ);
+
+bool ewfd_paddding_op_delay_gap_impl(circuit_t *circ, uint32_t trigger_ms, uint32_t pkt_num);
 
 #endif // EWFD_OP_H_

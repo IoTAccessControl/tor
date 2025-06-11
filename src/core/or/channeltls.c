@@ -181,7 +181,8 @@ channel_tls_common_init(channel_tls_t *tlschan)
   chan->cmux = circuitmux_alloc();
   /* We only have one policy for now so always set it to EWMA. */
   // circuitmux_set_policy(chan->cmux, &ewma_policy);
-  circuitmux_set_policy(chan->cmux, &ewfd_ewma_policy);
+  circuitmux_policy_t* current = ewfd_get_mux_policy();
+  circuitmux_set_policy(chan->cmux, current);
 }
 
 /**

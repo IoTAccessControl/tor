@@ -215,3 +215,6 @@ install
 # /src/win32/
 /src/win32/Makefile
 /src/win32/Makefile.in
+
+
+compile_commands.events.json

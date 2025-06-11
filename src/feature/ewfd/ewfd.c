@@ -31,8 +31,11 @@ ewfd_framework_st *ewfd_framework_instance = NULL;
 
 enum EWFD_OP_TYPE {
 	EWFD_OP_DUMMY = 0,
+	// simple delay
 	EWFD_OP_DELAY = 1,
 	EWFD_OP_NOTIFY = 2,
+	// advance delay by set gap
+	EWFD_OP_DELAY_GAP = 3,
 };
 
 enum EWFD_NOTIFY_REASON {
@@ -87,7 +90,7 @@ static void free_ewfd_queues(ewfd_framework_st *framework);
 // 固定GAP (EWFD_EVENT_QUEUE_TICK) 触发事件队列
 static void on_event_queue_tick(periodic_timer_t *timer, void *data);
 static int ewfd_add_to_event_queue(ewfd_op_event_st *event);
-static void handle_one_event(ewfd_op_event_st *event);
+static bool handle_one_event(ewfd_op_event_st *event);
 static const char* event_op_to_str(ewfd_op_event_st *event);
 
 static uint32_t total_event_alloc = 0;
@@ -271,6 +274,14 @@ int ewfd_add_delay_packet(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_
 	return ret;
 }
 
+int ewfd_op_delay(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_to_ms, uint32_t pkt_num) {
+	// set circ policy
+	ewfd_op_event_st *delay_event = alloc_ewfd_event(on_circ, insert_ti, EWFD_OP_DELAY_GAP);
+	delay_event->delay_event.delay_to_ms = delay_to_ms;
+	delay_event->delay_event.pkt_num = pkt_num;
+	return ewfd_add_to_event_queue(delay_event);
+}
+
 /* send [last_dummy, last_dummy + GAP) 区间的包
 */
 static void on_event_queue_tick(periodic_timer_t *timer, void *data) {
@@ -319,15 +330,21 @@ static void on_event_queue_tick(periodic_timer_t *timer, void *data) {
 				break;
 			}
 
-			handle_one_event(cur_event);
-			last_event_ti = cur_event->insert_ti;
-			event_num++;
+			bool is_processed = handle_one_event(cur_event);
+			if (is_processed) {
+				last_event_ti = cur_event->insert_ti;
+				event_num++;
+				TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+				free_ewfd_event(cur_event);
+				queue->queue_len--;
+			} else {
+				// 加到尾部
+				TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+				TOR_SIMPLEQ_INSERT_TAIL(&queue->head, cur_event, next);
+			}
 
-			TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
-			free_ewfd_event(cur_event);
-			queue->queue_len--;
 		}
-		
+
 		uint32_t remain = 0;
 		uint32_t expire = 0;
 		TOR_SIMPLEQ_FOREACH(cur_event, &queue->head, next) {
@@ -381,13 +398,13 @@ static int ewfd_add_to_event_queue(ewfd_op_event_st *event) {
 	return 0;
 }
 
-static void handle_one_event(ewfd_op_event_st *cur_event) {
+static bool handle_one_event(ewfd_op_event_st *cur_event) {
 	EWFD_TEMP_LOG("EWFD process one event ti: %lu op: %s cur_ti: %lu", cur_event->insert_ti, 
 			event_op_to_str(cur_event), monotime_absolute_msec());
 
 	circuit_t * cur_circ = (circuit_t *) cur_event->on_circt;
 	if (!is_valid_circuit(cur_event->on_circt)) {
-		return;
+		return true;
 	}
 
 	if (cur_event->ewfd_op == EWFD_OP_DUMMY) {
@@ -402,11 +419,17 @@ static void handle_one_event(ewfd_op_event_st *cur_event) {
 		} else if (cur_event->notify_event.reason == EWFD_NOFITY_CIRC_END) {
 
 		}
-	} 
-	else {
+	} else if (cur_event->ewfd_op == EWFD_OP_DELAY_GAP) {
+		// 未发送完，需要等待
+		bool should_wait = ewfd_paddding_op_delay_gap_impl(cur_circ, cur_event->delay_event.delay_to_ms, cur_event->delay_event.pkt_num);
+		if (should_wait) {
+			return false;
+		}
+	} else {
 		EWFD_LOG("ERROR: unknow ewfd op: %d", cur_event->ewfd_op);
 		tor_assert(false);
 	}
+	return true;
 }
 
 static const char* event_op_to_str(ewfd_op_event_st *event) {

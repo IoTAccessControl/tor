@@ -983,6 +983,20 @@ void circuitmux_make_circuit_inactive(circuitmux_t *cmux, circuit_t *circ)
 }
 
 /**
+*
+*/
+circuitmux_policy_circ_data_t* circuitmux_find_circ_policy(circuitmux_t *cmux, circuit_t *circ)
+{
+  tor_assert(cmux);
+  tor_assert(circ);
+  chanid_circid_muxinfo_t *hashent = circuitmux_find_map_entry(cmux, circ);
+  if (hashent) {
+    return hashent->muxinfo.policy_data;
+  }
+  return NULL;
+}
+
+/**
  * Clear the cell counter for a circuit on a circuitmux
  */
 

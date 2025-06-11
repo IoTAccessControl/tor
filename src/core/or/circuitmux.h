@@ -163,6 +163,7 @@ void circuitmux_show_info(circuitmux_t *cmux);
 
 void circuitmux_make_circuit_active(circuitmux_t *cmux, circuit_t *circ);
 void circuitmux_make_circuit_inactive(circuitmux_t *cmux, circuit_t *circ);
+circuitmux_policy_circ_data_t* circuitmux_find_circ_policy(circuitmux_t *cmux, circuit_t *circ);
 
 #ifdef CIRCUITMUX_PRIVATE
 

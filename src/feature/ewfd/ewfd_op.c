@@ -16,6 +16,7 @@
 #include "core/or/relay.h"
 #include "core/or/circuitlist.h"
 #include "core/or/cell_queue_st.h"
+#include "core/or/circuitmux_ewfd.h"
 #include "core/or/channel.h"
 #include "feature/stats/rephist.h"
 #include <stdint.h>
@@ -402,4 +403,8 @@ bool ewfd_paddding_op_dummy_impl(circuit_t *circ) {
 	}
 	rep_hist_padding_count_write(PADDING_TYPE_DROP);
 	return relay_send_command_from_edge(0, circ, RELAY_COMMAND_DROP, NULL, 0, target_hop);
+}
+
+bool ewfd_paddding_op_delay_gap_impl(circuit_t *circ, uint32_t trigger_ms, uint32_t pkt_num) {
+	return circuitmux_set_advance_delay(circ, trigger_ms, pkt_num);
 }

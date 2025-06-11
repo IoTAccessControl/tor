@@ -8,6 +8,7 @@ src_lib_libtor_ebpf_a_SOURCES = \
 	src/lib/ebpf/ebpf_vm.c \
 	src/lib/ebpf/ebpf_jit.c \
 	src/lib/ebpf/ebpf_jit_x86_64.c \
+	src/lib/ebpf/ebpf_jit_arm64.c \
 	src/lib/ebpf/ewfd-defense/src/ewfd_api.c \
 	src/lib/ebpf/ewfd-defense/src/ewfd_helper.c \
 	src/lib/ebpf/ewfd-defense/src/hashmap.c \

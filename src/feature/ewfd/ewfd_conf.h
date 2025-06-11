@@ -12,6 +12,11 @@
 #define DEFAULT_EWFD_PADDING_GAP_MS 200 // 50ms, 
 #define DEFAULT_EWFD_SCHEDULE_GAP_MS 500 // 500ms
 
+// 基于inactive/active
+// #define EWFD_USE_SIMPLE_DELAY
+// 基于拥塞控制
+#define EWFD_USE_ADVANCE_DELAY 
+
 enum MyPaddingType {
 	EWFD_PADDING_NONE = 0,
 	EWFD_PADDING_APE = 1,

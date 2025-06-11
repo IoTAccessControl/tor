@@ -3,18 +3,20 @@
 
 #include "core/or/or.h"
 #include "core/or/circuitmux.h"
+#include <stdint.h>
 
 /* The public EWFD policy callbacks object. */
-extern circuitmux_policy_t ewfd_ewma_policy;
-
 extern circuitmux_policy_t ewfd_delay_policy;
 
+circuitmux_policy_t* ewfd_get_mux_policy(void);
 
-/* Externally visible eWFD functions */
-void cmux_ewfd_set_options(const or_options_t *options,
-                           const networkstatus_t *consensus);
+// need wait ?
+bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_finish_ti, uint32_t pkt_num);
 
-void circuitmux_ewfd_free_all(void);
+enum EWFDDelayState {
+  EWFD_DELAY_BURST,
+  EWFD_DELAY_GAP,
+};
 
 #ifdef CIRCUITMUX_EWFD_PRIVATE
 
@@ -42,19 +44,37 @@ struct cell_ewfd_ewma_t {
   int heap_index;
 };
 
+/**
+* 基于delay来调度，检查一个时间range：
+* 方法-1. 优选选择包最多的队列
+* 方法-2. 优先发送下个发送ti更接近的队列，
+* 方法-3. 优先发送真实包最多的队列
+*/
 typedef struct cell_ewfd_delay_t {
-    /**
-   * 基于delay来调度，检查一个时间range：
-   * 方法-1. 优选选择包最多的队列
-   * 方法-2. 优先发送下个发送ti更接近的队列，
-   * 方法-3. 优先发送真实包最多的队列
-   */
-  uint64_t next_send_tick;
-  uint32_t next_send_cnt; // next dump+real packet that need to be sent
-  uint32_t all_real_pkt;  // all real packets on queue
+  /*
+  * 在时间快到时，手动重置burst_send_cnt数值。
+  * 如果拥塞包太多上一个轮次没发完，就进入新的burst，仍然有限发真实包
+  */
+  // 上一个burst结束的时间
+  uint64_t burst_finish_ti; 
+  // gap结束的时间
+  uint64_t gap_finish_ti; // after burst sleep for this duration
+  // add delay事件时，设置n个包
+  uint32_t burst_send_cnt; // next dump+real packet that need to be sent (一开始设置)
+  // 发送一个包就+1
+  uint32_t cur_send_cnt; // how many pkt are send now (add)
+  // 由发送时对列上现有包数量来决定 （只用来调度）
+  uint32_t remain_real_pkt;  // remain real packets on queue ()
+  uint8_t delay_state; // burst or gap
+
   int heap_index;
+  int sleep_hindex;
 } cell_ewfd_delay_t;
 
+/* circuitmux_t 保存多个circuit, 用policy记录这些circuit，每个circuit有自己的policy
+ * 为支持delay，每个circuit保存一个burst_ti, pkt_num。在不到burst_ti之前不会发送。
+ * active/inactive的逻辑不变。
+*/
 typedef struct ewfd_policy_data_t {
   circuitmux_policy_data_t base_;
 
@@ -67,11 +87,16 @@ typedef struct ewfd_policy_data_t {
   smartlist_t *active_circuit_pqueue;
 
   /**
+   * For delay based WP defense, we need to make the circuit sleep for a while to make a GAP after a burst stream.
+   */
+  smartlist_t *sleep_circuit_pqueue;
+
+  /**
    * The tick on which the cell_ewma_ts in active_circuit_pqueue last had
    * their ewma values rescaled.  This was formerly in channel_t, and in
    * or_connection_t before that.
    */
-  unsigned int active_circuit_pqueue_last_recalibrated;
+  // unsigned int active_circuit_pqueue_last_recalibrated;
 } ewfd_policy_data_t;
 
 struct ewfd_policy_circ_data_t {
@@ -85,7 +110,7 @@ struct ewfd_policy_circ_data_t {
    * onto this circuitmux.  Used to determine which circuit to flush
    * from next.  This was formerly in circuit_t and or_circuit_t.
    */
-  cell_ewfd_ewma_t cell_ewfd_ewma;
+  // cell_ewfd_ewma_t cell_ewfd_ewma;
 
   /** settings for delay policy
    */
