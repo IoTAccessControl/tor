@@ -11,7 +11,7 @@ extern circuitmux_policy_t ewfd_delay_policy;
 circuitmux_policy_t* ewfd_get_mux_policy(void);
 
 // need wait ?
-bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_finish_ti, uint32_t pkt_num);
+bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t pkt_num);
 
 enum EWFDDelayState {
   EWFD_DELAY_BURST,

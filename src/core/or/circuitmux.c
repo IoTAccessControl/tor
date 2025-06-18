@@ -71,7 +71,7 @@
 
 #define CIRCUITMUX_PRIVATE
 
-// #define EWFD_USE_TEMP_LOG
+#define EWFD_USE_TEMP_LOG
 #include "feature/ewfd/debug.h"
 
 #include "core/or/or.h"
@@ -943,7 +943,7 @@ void circuitmux_make_circuit_active(circuitmux_t *cmux, circuit_t *circ)
   tor_assert(cmux->policy);
   tor_assert(circ);
 
-  EWFD_TEMP_LOG("circuitmux active circ: %d", ewfd_get_circuit_id(circ));
+  EWFD_TEMP_LOG("circuitmux active circ: %d %p", ewfd_get_circuit_id(circ), circ);
 
   /* Policy-specific notification */
   if (cmux->policy->notify_circ_active) {

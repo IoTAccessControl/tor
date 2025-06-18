@@ -3431,7 +3431,7 @@ static int channel_flush_from_first_active_circuit_impl_advance(channel_t *chan,
       break;
     }
 
-    EWFD_LOG("chan: %p", circ->n_chan);
+    EWFD_LOG("flush chan: %p", circ);
     if (circ->n_chan == chan) {
       queue = &circ->n_chan_cells;
       streams_blocked = circ->streams_blocked_on_n_chan;
@@ -3483,7 +3483,6 @@ static int channel_flush_from_first_active_circuit_impl_advance(channel_t *chan,
 
       #if 0
       // 加入到active_queue队尾, 保持轮询，性能开销过大
-      circuitmux_make_circuit_active(cmux, circ);
       ++n_dummy_pkt;
       #endif 
 
@@ -3555,9 +3554,6 @@ static int channel_flush_from_first_active_circuit_impl_advance(channel_t *chan,
     // 当前真实包数量不够，发送的是dummy包，
     // 为了避免一次性发送的dummy包过多，因此触发拥塞控制，需要等待有没有别的包，放到active队列的最后面
     if (n_cell == 0) {
-      circuitmux_make_circuit_inactive(cmux, circ);
-      circuitmux_make_circuit_active(cmux, circ);
-
       // channel_more_to_flush(chan)
       ++n_dummy_pkt;
     }
