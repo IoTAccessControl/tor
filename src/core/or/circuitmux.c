@@ -983,7 +983,7 @@ void circuitmux_make_circuit_inactive(circuitmux_t *cmux, circuit_t *circ)
 }
 
 /**
-*
+* Find a circuit's policy data from the channel's cmux hashmap
 */
 circuitmux_policy_circ_data_t* circuitmux_find_circ_policy(circuitmux_t *cmux, circuit_t *circ)
 {

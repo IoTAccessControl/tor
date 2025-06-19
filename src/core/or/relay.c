@@ -3237,19 +3237,7 @@ static int channel_flush_from_first_active_circuit_impl_basic(channel_t *chan, i
     EWFD_TEMP_LOG("[CHANNEL] li: %d circ: %u q-len: %d", __LINE__, ewfd_get_circuit_id(circ), queue->n);
     // circuitmux_show_info(cmux);
 
-    /* Circuitmux told us this was active, so it should have cells */
-    if (/*BUG(*/ queue->n == 0 /*)*/) {
-      log_warn(LD_BUG, "Found a supposedly active circuit with no cells "
-               "to send. Trying to recover.");
-      circuitmux_set_num_cells(cmux, circ, 0);
-      if (! circ->marked_for_close)
-        circuit_mark_for_close(circ, END_CIRC_REASON_INTERNAL);
-      continue;
-    }
-
-    tor_assert(queue->n > 0);
-
-    /*
+        /*
      * Get just one cell here; once we've sent it, that can change the circuit
      * selection, so we have to loop around for another even if this circuit
      * has more than one.
@@ -3262,10 +3250,24 @@ static int channel_flush_from_first_active_circuit_impl_basic(channel_t *chan, i
       // 原始代码
       cell = cell_queue_pop(queue);
     #else 
-      extern packed_cell_t * ewfd_cell_queue_pop(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
-      cell = ewfd_cell_queue_pop(queue, chan->wide_circ_ids, &n_cell);
+      extern packed_cell_t * ewfd_cell_queue_pop_simple_delay(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
+      cell = ewfd_cell_queue_pop_simple_delay(queue, chan->wide_circ_ids, &n_cell);
       EWFD_TEMP_LOG("[CHANNEL] li: %d circ: %u n_cell %d q-len: %d", __LINE__, ewfd_get_circuit_id(circ), n_cell, queue->n);
     #endif
+
+    /* Circuitmux told us this was active, so it should have cells */
+    if (/*BUG(*/ queue->n == 0 /*)*/) {
+      log_warn(LD_BUG, "Found a supposedly active circuit with no cells "
+               "to send. Trying to recover.");
+      circuitmux_set_num_cells(cmux, circ, 0);
+      if (! circ->marked_for_close)
+        circuit_mark_for_close(circ, END_CIRC_REASON_INTERNAL);
+      continue;
+    }
+
+    tor_assert(queue->n > 0);
+
+
 
     /* 当前队列没有可发送的包，需要等待
      * https://github.com/torproject/tor/blob/maint-0.4.7/src/core/or/relay.c#L3059
@@ -3372,8 +3374,14 @@ static int channel_flush_from_first_active_circuit_impl_basic(channel_t *chan, i
 }
 
 // use congestion control to impl delay
+/*
+不需要自己重新实现
+*/
 static int channel_flush_from_first_active_circuit_impl_advance(channel_t *chan, int max) {
-   circuitmux_t *cmux = NULL;
+  return channel_flush_from_first_active_circuit_impl_raw(chan, max);
+  /* delay模式，由队列自动插入dummy包，不再需要手动处理，因此不需要修改原来逻辑
+  */
+  circuitmux_t *cmux = NULL;
   int n_flushed = 0;
   cell_queue_t *queue;
   destroy_cell_queue_t *destroy_queue=NULL;
@@ -3469,8 +3477,8 @@ static int channel_flush_from_first_active_circuit_impl_advance(channel_t *chan,
       // 原始代码
       cell = cell_queue_pop(queue);
     #else 
-      extern packed_cell_t * ewfd_cell_queue_pop(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
-      cell = ewfd_cell_queue_pop(queue, chan->wide_circ_ids, &n_cell);
+      extern packed_cell_t * ewfd_cell_queue_pop_simple_delay(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
+      cell = ewfd_cell_queue_pop_simple_delay(queue, chan->wide_circ_ids, &n_cell);
       EWFD_TEMP_LOG("[CHANNEL] li: %d circ: %u n_cell %d q-len: %d", __LINE__, ewfd_get_circuit_id(circ), n_cell, queue->n);
     #endif
 

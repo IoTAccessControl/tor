@@ -13,9 +13,11 @@ circuitmux_policy_t* ewfd_get_mux_policy(void);
 // need wait ?
 bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t pkt_num);
 
-enum EWFDDelayState {
-  EWFD_DELAY_BURST,
-  EWFD_DELAY_GAP,
+enum EWFDDelayMODE {
+  EWFD_MODE_NORMAL, // 直接send，不管模式
+  EWFD_MODE_WAIT_TO_BURST, // gap -> 等待burst
+  EWFD_MODE_BURST,
+  EWFD_MODE_GAP,
 };
 
 #ifdef CIRCUITMUX_EWFD_PRIVATE
@@ -52,13 +54,13 @@ struct cell_ewfd_ewma_t {
 */
 typedef struct cell_ewfd_delay_t {
   /*
-  * 在时间快到时，手动重置burst_send_cnt数值。
-  * 如果拥塞包太多上一个轮次没发完，就进入新的burst，仍然有限发真实包
+  * delay模式：发送完n个包，gap t ms。
+  * burst_finish_ti + gap_ti，再次进入burst
   */
   // 上一个burst结束的时间
   uint64_t burst_finish_ti; 
   // gap结束的时间
-  uint64_t gap_finish_ti; // after burst sleep for this duration
+  uint64_t gap_ti; // after burst sleep for this duration
   // add delay事件时，设置n个包
   uint32_t burst_send_cnt; // next dump+real packet that need to be sent (一开始设置)
   // 发送一个包就+1

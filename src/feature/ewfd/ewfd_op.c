@@ -52,7 +52,6 @@ extern packed_cell_t* packed_cell_new(void);
 static void my_pad_cell_payload(uint8_t *cell_payload, size_t data_len);
 static packed_cell_t* my_copy_packed_cell(cell_t *cell, uint8_t wide_circ_ids);
 static ewfd_delay_event_st* try_get_delay_packet(packed_cell_t *cell, uint8_t wide_circ_ids);
-static packed_cell_t* ewfd_craft_dummy_packet(circuit_t *circ);
 static packed_cell_t* find_next_real_packet(cell_queue_t *queue, packed_cell_t *cur_cell, uint8_t wide_circ_ids);
 
 /*------------------*/
@@ -98,7 +97,7 @@ static ewfd_delay_event_st* try_get_delay_packet(packed_cell_t *cell, uint8_t wi
 	return NULL;
 }
 
-static packed_cell_t* ewfd_craft_dummy_packet(circuit_t *circ) {
+packed_cell_t* ewfd_craft_dummy_packet(circuit_t *circ) {
 	cell_direction_t cell_direction = CIRCUIT_IS_ORIGIN(circ) ? CELL_DIRECTION_OUT : CELL_DIRECTION_IN;
 	cell_t cell = {0};
 	uint8_t wide_circ_ids = 0;
@@ -177,7 +176,7 @@ static packed_cell_t* find_next_real_packet(cell_queue_t *queue, packed_cell_t *
 
 send_state: 是否需要先切换队列
 */
-packed_cell_t * ewfd_cell_queue_pop(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell) {
+packed_cell_t * ewfd_cell_queue_pop_simple_delay(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell) {
 	packed_cell_t *first_cell = TOR_SIMPLEQ_FIRST(&queue->head);
 	if (first_cell == NULL) {
 		return NULL;

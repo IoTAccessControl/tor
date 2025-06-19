@@ -17,7 +17,10 @@ extern int ewfd_op_delay(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_t
 等待delay_us后发送n个包
 n_cell: 实际从队列删除的包的数量
 */
-extern packed_cell_t* ewfd_cell_queue_pop(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
+extern packed_cell_t* ewfd_cell_queue_pop_simple_delay(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
+extern packed_cell_t* ewfd_craft_dummy_packet(circuit_t *circ);
+
+// extern packed_cell_t* ewfd_cell_queue_pop_advance_delay(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
 
 /* op最终实现，给ewfd.c中的队列调用
 */
