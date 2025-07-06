@@ -590,6 +590,8 @@ kist_scheduler_schedule(void)
   } else {
     scheduler_ev_active();
   }
+
+  // EWFD_TEMP_LOG("[scheduler] step:schedule diff:%ld cur_ti:%lu", diff, monotime_absolute_msec());
 }
 
 /* Function of the scheduler interface: run() */
@@ -615,6 +617,8 @@ kist_scheduler_run(void)
 
   log_debug(LD_SCHED, "Running the scheduler. %d channels pending",
             smartlist_len(cp));
+
+  // EWFD_TEMP_LOG("[scheduler] step:run chan-len:%d", smartlist_len(cp));
 
   /* The main scheduling loop. Loop until there are no more pending channels */
   while (smartlist_len(cp) > 0) {
@@ -646,6 +650,7 @@ kist_scheduler_run(void)
     if (socket_can_write(&socket_table, chan)) {
       /* flush to channel queue/outbuf */
       flush_result = (int)channel_flush_some_cells(chan, 1); // 1 for num cells
+      // EWFD_TEMP_LOG("[scheduler] step:flush chan:%lu flush_result:%d", chan->global_identifier, flush_result);
       /* XXX: While flushing cells, it is possible that the connection write
        * fails leading to the channel to be closed which triggers a release
        * and free its entry in the socket table. And because of a engineering
@@ -677,7 +682,7 @@ kist_scheduler_run(void)
                  channel_state_to_string(chan->state),
                  get_scheduler_state_string(chan->scheduler_state));
         scheduler_set_channel_state(chan, SCHED_CHAN_WAITING_FOR_CELLS);
-        EWFD_TEMP_LOG("[scheduler] set chan wait chan: %lu", chan->global_identifier);
+        EWFD_TEMP_LOG("[scheduler] step:chan_wait flush_result:%d chan:%lu", flush_result, chan->global_identifier);
         continue;
       }
     }
@@ -764,6 +769,8 @@ kist_scheduler_run(void)
     } SMARTLIST_FOREACH_END(readd_chan);
     smartlist_free(to_readd);
   }
+
+  // EWFD_TEMP_LOG("[scheduler] step:run_end state:%s chan-len:%d", get_scheduler_state_string(chan->scheduler_state), smartlist_len(cp));
 
   monotime_get(&scheduler_last_run);
 }

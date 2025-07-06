@@ -4,15 +4,6 @@
 #include <stdint.h>
 #include "core/or/or.h"
 
-// ebpf端接口
-// add to global timer and sending queue
-// are implemented in ewfd.c
-extern int ewfd_add_dummy_packet(uintptr_t on_circ, uint32_t insert_ti);
-// 基于delay事件的实现  
-extern int ewfd_add_delay_packet(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_to_ms, uint32_t pkt_num);
-// 基于拥塞控制（自定义sleep队列）的实现  
-extern int ewfd_op_delay(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_to_ms, uint32_t pkt_num);
-
 /* 判断是否是delay包
 等待delay_us后发送n个包
 n_cell: 实际从队列删除的包的数量
@@ -22,6 +13,10 @@ extern packed_cell_t* ewfd_craft_dummy_packet(circuit_t *circ);
 
 // extern packed_cell_t* ewfd_cell_queue_pop_advance_delay(cell_queue_t *queue, uint8_t wide_circ_ids, uint8_t *n_cell);
 
+
+/*
+*   内部其他PAI
+*/
 /* op最终实现，给ewfd.c中的队列调用
 */
 // 发送一个delay event

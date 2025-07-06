@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "feature/ewfd/ewfd_rt.h"
-#include "feature/ewfd/ewfd_op.h"
+#include "feature/ewfd/ebpf_api.h"
 
 typedef struct {
 	uint32_t *buffer;
@@ -184,22 +184,32 @@ static void dev_gan_init(void) {
 
 static int add_delay_pkt = 100;
 
+/*
+ * gan实现是，队列中没有delay事件就自己去get
+*/
 static uint64_t dev_gan_on_tick(ewfd_circ_status_st *ewfd_status) {
 	// EWFD_LOG("on gan tick");
 	// 1s一个delay包，延时50ms
 	uint64_t now_ti = ewfd_status->now_ti;
 	uint64_t last_ti = ewfd_status->last_padding_ti;
 	uint64_t gap_ms = 200;
-	if (last_ti + gap_ms < now_ti && add_delay_pkt > 0) {
+	int remain_events = ewfd_get_event_num(ewfd_status->on_circ);
+	// 避免队列上堆积太多事件
+	if (last_ti + gap_ms < now_ti && add_delay_pkt > 0 && remain_events < 5) {
 		uint64_t send_ti = now_ti;
-		send_ti += 2000; // delay 2s
-		EWFD_TEMP_LOG("----------------gan add delay packet last_ti: %lu cur_ti: %lu trigger-ti: %lu", last_ti, now_ti, send_ti);
 		
 	#ifdef EWFD_USE_SIMPLE_DELAY
+		send_ti += 2000; // delay 2s
 		ewfd_add_delay_packet(ewfd_status->on_circ, now_ti, send_ti, 10);
 	#elif defined(EWFD_USE_ADVANCE_DELAY)
-		ewfd_op_delay(ewfd_status->on_circ, now_ti, send_ti, 10);
+		// 每隔2s发送10个包
+		send_ti = 2000;
+		int op_ret = ewfd_op_delay(ewfd_status->on_circ, now_ti, send_ti, 3);
 	#endif
+		EWFD_TEMP_LOG("[delay-event] step:gan_add_delay circ:%d last_ti:%lu cur_ti:%lu"
+			" trigger-ti:%lu bf-ev:%d af-ev:%d suc:%d", 
+			ewfd_get_circuit_id((circuit_t *) ewfd_status->on_circ), last_ti,
+			now_ti, send_ti, remain_events, ewfd_get_event_num(ewfd_status->on_circ), op_ret);
 
 		// 直接发送drop包，测试功能
 		// ewfd_add_dummy_packet(ewfd_status->on_circ, send_ti);

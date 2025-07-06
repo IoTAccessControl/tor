@@ -14,7 +14,7 @@
 #include "core/or/channeltls.h"
 
 #include "core/or/or_connection_st.h"
-
+#include "feature/ewfd/debug.h"
 /**
  * \file scheduler.c
  * \brief Channel scheduling system: decides which channels should send and
@@ -518,6 +518,8 @@ scheduler_channel_doesnt_want_writes,(channel_t *chan))
     return;
   }
 
+  EWFD_TEMP_LOG("[scheduler] step:doesnt_want_writes chan:%lu state:%s", chan->global_identifier, get_scheduler_state_string(chan->scheduler_state)); 
+
   if (chan->scheduler_state == SCHED_CHAN_PENDING) {
     /*
      * It has cells but no longer can write, so it becomes
@@ -553,6 +555,8 @@ scheduler_channel_has_waiting_cells,(channel_t *chan))
   IF_BUG_ONCE(!channels_pending) {
     return;
   }
+
+  EWFD_TEMP_LOG("[scheduler] step:has_waiting_cells chan:%lu state:%s", chan->global_identifier, get_scheduler_state_string(chan->scheduler_state)); 
 
   if (chan->scheduler_state == SCHED_CHAN_WAITING_FOR_CELLS) {
     /*
@@ -678,6 +682,8 @@ scheduler_channel_wants_writes(channel_t *chan)
   IF_BUG_ONCE(!channels_pending) {
     return;
   }
+
+  EWFD_TEMP_LOG("[scheduler] step:wants_writes chan:%lu state:%s", chan->global_identifier, get_scheduler_state_string(chan->scheduler_state)); 
 
   if (chan->scheduler_state == SCHED_CHAN_WAITING_TO_WRITE) {
     /*

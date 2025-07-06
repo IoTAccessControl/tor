@@ -24,7 +24,11 @@ typedef struct ewfd_framework_t {
 	periodic_timer_t *padding_ticker; // 当前不使用
 	periodic_timer_t *packet_ticker;  // 固定tick处理
 	uint64_t last_event_ti; // 上一次发送event的时间
-	uint32_t all_pkt; // 总共发送的dummy packet数量
+	uint32_t all_dummy_pkt; // 总共发送的dummy packet数量
+
+	// hash map，记录每个cicr的event堆积数量
+	// 见 ewfd_get_remain_events 
+
 } ewfd_framework_st;
 
 // read from local confs
@@ -37,5 +41,15 @@ void ewfd_framework_free(void);
 
 void start_ewfd_padding_framework(void);
 void ewfd_remove_remain_events(uintptr_t on_circ);
+
+#ifdef EWFD_UNITEST_TEST_PRIVATE
+// struct ewfd_event_queue_t;
+
+// ewfd_event_queue_t *ewfd_event_queue_new(void);
+// void ewfd_event_queue_free(ewfd_event_queue_t *event_queue);	
+
+extern void on_event_queue_tick(periodic_timer_t *timer, void *data);
+
+#endif // EWFD_UNITEST_TEST_PRIVATE
 
 #endif

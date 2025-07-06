@@ -21,5 +21,6 @@ noinst_HEADERS +=					\
 	src/feature/ewfd/ewfd_unit.h	\
 	src/feature/ewfd/ewfd_dev.h		\
 	src/feature/ewfd/ewfd_ticker.h		\
+	src/feature/ewfd/ebpf_api.h		\
 	src/feature/ewfd/ewfd_op.h		\
 	src/feature/ewfd/ewfd.h

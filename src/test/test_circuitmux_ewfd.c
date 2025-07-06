@@ -7,6 +7,7 @@
 #include "lib/smartlist_core/smartlist_foreach.h"
 #include "feature/ewfd/debug.h"
 #include "tinytest_macros.h"
+#include <stdint.h>
 #include <stdio.h>
 #define CIRCUITMUX_PRIVATE
 #define CIRCUITMUX_EWFD_PRIVATE
@@ -301,6 +302,129 @@ static struct testcase_setup_t cmux_ewfd_test_setup = {
 #define TEST_CMUX_EWFD(name) \
   { #name, test_cmux_ewfd_##name, TT_FORK, &cmux_ewfd_test_setup, NULL }
 
+#define TEST_EWFD(name) \
+  { #name, test_ewfd_##name, TT_FORK, &cmux_ewfd_test_setup, NULL }
+
+
+/*
+* customize test cases
+*/
+#define EWFD_UNITEST_TEST_PRIVATE
+#include "feature/ewfd/ewfd.h"
+#include "feature/ewfd/ebpf_api.h"
+#include "core/or/origin_circuit_st.h"
+
+/* 测试函数
+ewfd_get_event_num
+ewfd_remove_remain_events
+*/
+static void test_ewfd_event_queue_delete(void *args) {
+  ewfd_framework_init();
+  start_ewfd_padding_framework();
+  or_circuit_t circ1, circ2, circ3;
+  circ1.base_.magic = OR_CIRCUIT_MAGIC;
+  circ1.base_.purpose = 0;
+  circ1.p_circ_id = 1;
+  circ2.base_.magic = OR_CIRCUIT_MAGIC;
+  circ2.base_.purpose = 0;
+  circ2.p_circ_id = 2;
+  circ3.base_.magic = OR_CIRCUIT_MAGIC;
+  circ3.base_.purpose = 0;
+  circ3.p_circ_id = 3;
+
+  // ewfd_get_circuit_id(&circ1);
+
+  ewfd_add_dummy_packet((uintptr_t) &circ1, 100);
+  ewfd_add_dummy_packet((uintptr_t) &circ1, 100);
+  ewfd_add_dummy_packet((uintptr_t) &circ1, 100);
+  ewfd_add_dummy_packet((uintptr_t) &circ2, 100);
+  ewfd_add_dummy_packet((uintptr_t) &circ3, 100);
+
+  // test queue poll 
+
+  // printf("circ1: %p\n", &circ1);
+  // printf("circ2: %p\n", &circ2);
+  // printf("circ3: %p\n", &circ3);
+
+  // test queue delete
+  tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 3);
+  tt_int_op(ewfd_get_event_num((uintptr_t) &circ2), OP_EQ, 1);
+  tt_int_op(ewfd_get_event_num((uintptr_t) &circ3), OP_EQ, 1);
+
+  ewfd_remove_remain_events((uintptr_t) &circ1);
+
+  tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 0);
+  tt_int_op(ewfd_get_event_num((uintptr_t) &circ2), OP_EQ, 1);
+  tt_int_op(ewfd_get_event_num((uintptr_t) &circ3), OP_EQ, 1);
+
+done:
+  ewfd_framework_free();
+}
+
+// 需要手动打开 ewfd.c 中 EWFD_UNITEST_TEST_PRIVATE 宏
+static void test_ewfd_event_queue_poll(void *args) {
+  ewfd_framework_init();
+  start_ewfd_padding_framework();
+
+  or_circuit_t circ1, circ2, circ3;
+  circ1.base_.magic = OR_CIRCUIT_MAGIC;
+  circ1.base_.purpose = 0;
+  circ1.p_circ_id = 1;
+  circ2.base_.magic = OR_CIRCUIT_MAGIC;
+  circ2.base_.purpose = 0;
+  circ2.p_circ_id = 2;
+  circ3.base_.magic = OR_CIRCUIT_MAGIC;
+  circ3.base_.purpose = 0;
+  circ3.p_circ_id = 3;
+
+  printf("circ1: %d %p\n", ewfd_get_circuit_id((circuit_t *) &circ1), &circ1);
+  printf("circ2: %d %p\n", ewfd_get_circuit_id((circuit_t *) &circ2), &circ2);
+  printf("circ3: %d %p\n", ewfd_get_circuit_id((circuit_t *) &circ3), &circ3);
+  
+  uint64_t it1 = 100, it2 = 150, it3 = 2200, it4 = 4100;
+
+  ewfd_op_delay((uintptr_t) &circ1, it1, 2000, 5);
+  ewfd_op_delay((uintptr_t) &circ1, it2, 2000, 5);
+  ewfd_op_delay((uintptr_t) &circ1, it3, 2000, 5);
+  ewfd_op_delay((uintptr_t) &circ1, it4, 2000, 5);
+
+  int tick = 0;
+  while (1) {
+    tick++;
+    if (tick > 100) {
+      break;
+    }
+    // MAX_EWFD_TICK_GAP_MS 50ms
+    uint64_t cur_ti = tick * 50;
+    on_event_queue_tick(NULL, &cur_ti);
+
+    // 
+    int delay = 50 * 2;
+    printf("cur_ti: %d num: %d\n", cur_ti, ewfd_get_event_num((uintptr_t) &circ1));
+    if (cur_ti < it2) {
+      tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 4);
+    }
+    
+    if (cur_ti == it2) {
+      tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 3);
+    }
+
+    if (cur_ti > 500 && cur_ti < it3) {
+      tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 2);
+    }
+
+    if (cur_ti == it3 + delay) {
+      tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 1);
+    }
+
+    if (cur_ti >= it4 + delay) {
+      tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 0);
+    }
+  }
+done:
+  ewfd_framework_free();
+}
+
 struct testcase_t circuitmux_ewfd_tests[] = {
   TEST_CMUX_EWFD(ewma_active_circuit), // checked
   TEST_CMUX_EWFD(ewma_policy_data),
@@ -315,6 +439,8 @@ struct testcase_t circuitmux_ewfd_tests[] = {
   TEST_CMUX_EWFD(delay_xmit_cell),
   TEST_CMUX_EWFD(delay_cmp_cell),
   TEST_CMUX_EWFD(delay_pick_many_cell),
-
+  // customize test cases
+  TEST_EWFD(event_queue_delete),
+  TEST_EWFD(event_queue_poll),
   END_OF_TESTCASES
 };

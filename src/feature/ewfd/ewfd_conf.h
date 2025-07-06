@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include "lib/smartlist_core/smartlist_core.h"
 
-#define EWFD_EVENT_QUEUE_TICK_MS 50 // 20ms，调用一次全局事件队列
-#define MAX_EWFD_TICK_GAP_MS 500 // 500ms, queue最多调度500ms内的event，之前的event过期丢弃
+#define EWFD_EVENT_QUEUE_TICK_MS 50 // 50ms，调用一次全局事件队列
+#define MAX_EWFD_TICK_GAP_MS 200 // queue最多调度200ms内的event，之前的event过期丢弃
 #define MAX_EVENT_IN_QUEUE 2000 // 2000个event，超过丢弃
 
 // padding/schedule unit默认tick间隔

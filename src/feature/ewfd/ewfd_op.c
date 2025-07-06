@@ -4,6 +4,7 @@
 #include "feature/ewfd/debug.h"
 
 #include "feature/ewfd/ewfd_op.h"
+#include "feature/ewfd/ewfd.h"
 #include "feature/ewfd/circuit_padding.h"
 
 #include "ext/tor_queue.h"
