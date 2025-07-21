@@ -15,9 +15,10 @@ bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t 
 
 enum EWFDDelayMODE {
   EWFD_MODE_NORMAL = 0, // 直接send，不管模式
-  EWFD_MODE_WAIT_TO_BURST, // 1 gap -> 等待burst
+  EWFD_MODE_WAIT_TO_BURST, // 1 gap结束 -> 等待burst
   EWFD_MODE_BURST, // 2
   EWFD_MODE_GAP, // 3
+  EWFD_MODE_DESTROY, // 4
 };
 
 #ifdef CIRCUITMUX_EWFD_PRIVATE
@@ -93,6 +94,8 @@ typedef struct ewfd_policy_data_t {
    * For delay based WP defense, we need to make the circuit sleep for a while to make a GAP after a burst stream.
    */
   smartlist_t *sleep_circuit_pqueue;
+
+  int idx;
 
   /**
    * The tick on which the cell_ewma_ts in active_circuit_pqueue last had

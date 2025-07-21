@@ -35,6 +35,8 @@
 #include <linux/sockios.h>
 #endif /* HAVE_KIST_SUPPORT */
 
+static void log_kist_scheduler_cb_queue(const char *context,smartlist_t *channels_pending);
+
 /*****************************************************************************
  * Data structures and supporting functions
  *****************************************************************************/
@@ -591,7 +593,7 @@ kist_scheduler_schedule(void)
     scheduler_ev_active();
   }
 
-  // EWFD_TEMP_LOG("[scheduler] step:schedule diff:%ld cur_ti:%lu", diff, monotime_absolute_msec());
+  EWFD_TEMP_LOG("[scheduler] step:schedule diff:%ld cur_ti:%lu", diff, monotime_absolute_msec());
 }
 
 /* Function of the scheduler interface: run() */
@@ -615,16 +617,18 @@ kist_scheduler_run(void)
       update_socket_info(&socket_table, pchan);
   } SMARTLIST_FOREACH_END(pchan);
 
-  log_debug(LD_SCHED, "Running the scheduler. %d channels pending",
-            smartlist_len(cp));
+  // log_debug(LD_SCHED, "Running the scheduler. %d channels pending",
+            // smartlist_len(cp));
 
-  // EWFD_TEMP_LOG("[scheduler] step:run chan-len:%d", smartlist_len(cp));
+  EWFD_TEMP_LOG("[scheduler] step:run_start chan-len:%d cur_ti:%lu", smartlist_len(cp), monotime_absolute_msec());
+  log_kist_scheduler_cb_queue("[scheduler] schedule-queue ", cp);
 
   /* The main scheduling loop. Loop until there are no more pending channels */
   while (smartlist_len(cp) > 0) {
     /* get best channel */
     chan = smartlist_pqueue_pop(cp, scheduler_compare_channels,
                                 offsetof(channel_t, sched_heap_idx));
+    circuitmux_show_info(chan->cmux);
     if (SCHED_BUG(!chan, NULL)) {
       /* Some-freaking-how a NULL got into the channels_pending. That should
        * never happen, but it should be harmless to ignore it and keep looping.
@@ -770,7 +774,7 @@ kist_scheduler_run(void)
     smartlist_free(to_readd);
   }
 
-  // EWFD_TEMP_LOG("[scheduler] step:run_end state:%s chan-len:%d", get_scheduler_state_string(chan->scheduler_state), smartlist_len(cp));
+  EWFD_TEMP_LOG("[scheduler] step:run_end state:%s chan-len:%d", get_scheduler_state_string(chan->scheduler_state), smartlist_len(cp));
 
   monotime_get(&scheduler_last_run);
 }
@@ -847,6 +851,16 @@ scheduler_kist_set_full_mode(void)
   kist_scheduler.type = SCHEDULER_KIST;
   log_info(LD_SCHED,
            "Setting KIST scheduler with kernel support (KIST mode)");
+}
+
+static void log_kist_scheduler_cb_queue(const char *context,smartlist_t *channels_pending) {
+  char msg[1024];
+  int msg_len = 0;
+  msg_len += snprintf(msg + msg_len, sizeof(msg) - msg_len, "chan-len: %d", smartlist_len(channels_pending));
+  SMARTLIST_FOREACH_BEGIN(channels_pending, channel_t *, pchan) {
+    msg_len += snprintf(msg + msg_len, sizeof(msg) - msg_len, " (%lu, %s) ", pchan->global_identifier, get_scheduler_state_string(pchan->scheduler_state));
+  } SMARTLIST_FOREACH_END(pchan);
+  EWFD_TEMP_LOG("%s %s", context, msg);
 }
 
 #ifdef HAVE_KIST_SUPPORT

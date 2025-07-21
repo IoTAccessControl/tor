@@ -242,6 +242,8 @@ circuitmux_detach_all_circuits(circuitmux_t *cmux, smartlist_t *detached_out)
              */
 
             if (to_remove->muxinfo.cell_count > 0) {
+              EWFD_TEMP_LOG("[delay-event] detach-all circ: %u state branch-1 inactive: %d  hash-cnt: %d n_cell: %d", 
+                ewfd_get_circuit_id(circ), __LINE__, to_remove->muxinfo.cell_count, 0);
               circuitmux_make_circuit_inactive(cmux, circ);
             }
 
@@ -254,6 +256,8 @@ circuitmux_detach_all_circuits(circuitmux_t *cmux, smartlist_t *detached_out)
              */
 
             if (to_remove->muxinfo.cell_count > 0) {
+              EWFD_TEMP_LOG("[delay-event] detach-all circ: %u state branch-2 inactive: %d  hash-cnt: %d n_cell: %d", 
+                ewfd_get_circuit_id(circ), __LINE__, to_remove->muxinfo.cell_count, 0);
               circuitmux_make_circuit_inactive(cmux, circ);
             }
 
@@ -793,6 +797,8 @@ circuitmux_attach_circuit,(circuitmux_t *cmux, circuit_t *circ,
      */
     if (hashent->muxinfo.cell_count > 0 && cell_count == 0) {
       --(cmux->n_active_circuits);
+      EWFD_TEMP_LOG("[delay-event] attach circ: %u state inactive-line: %d  hash-cnt: %d n_cell: %d", 
+        ewfd_get_circuit_id(circ), __LINE__, hashent->muxinfo.cell_count, 0);
       circuitmux_make_circuit_inactive(cmux, circ);
     } else if (hashent->muxinfo.cell_count == 0 && cell_count > 0) {
       ++(cmux->n_active_circuits);
@@ -901,6 +907,8 @@ circuitmux_detach_circuit,(circuitmux_t *cmux, circuit_t *circ))
     if (hashent->muxinfo.cell_count > 0) {
       --(cmux->n_active_circuits);
       /* This does policy notifies, so comes before freeing policy data */
+      EWFD_TEMP_LOG("[delay-event] detach circ: %u  inactive-line: %d  hash-cnt: %d n_cell: %d", 
+        ewfd_get_circuit_id(circ), __LINE__, hashent->muxinfo.cell_count, 0);
       circuitmux_make_circuit_inactive(cmux, circ);
     }
     cmux->n_cells -= hashent->muxinfo.cell_count;
@@ -968,7 +976,7 @@ void circuitmux_make_circuit_inactive(circuitmux_t *cmux, circuit_t *circ)
   tor_assert(cmux->policy);
   tor_assert(circ);
 
-  EWFD_TEMP_LOG("circuitmux inactive circ: %d", ewfd_get_circuit_id(circ));
+  EWFD_TEMP_LOG("[delay-event] circuitmux inactive circ: %d", ewfd_get_circuit_id(circ));
 
   /* Policy-specific notification */
   if (cmux->policy->notify_circ_inactive) {
@@ -1044,20 +1052,20 @@ circuitmux_set_num_cells(circuitmux_t *cmux, circuit_t *circ,
    * new cell count == 0 ?
    */
   if (hashent->muxinfo.cell_count > 0 && n_cells == 0) {
-    EWFD_TEMP_LOG("set circ: %u state branch-1 inactive: %d  hash-cnt: %d n_cell: %d", 
+    EWFD_TEMP_LOG("[delay-event]set circ: %u state branch-1 inactive: %d  hash-cnt: %d n_cell: %d", 
       ewfd_get_circuit_id(circ), __LINE__, hashent->muxinfo.cell_count, n_cells);
     --(cmux->n_active_circuits);
     hashent->muxinfo.cell_count = n_cells;
     circuitmux_make_circuit_inactive(cmux, circ);
   /* Is the old cell count == 0 and the new cell count > 0 ? */
   } else if (hashent->muxinfo.cell_count == 0 && n_cells > 0) {
-    EWFD_TEMP_LOG("set circ: %u state branch-2 active: %d hash-cnt: %d n_cell: %d", 
+    EWFD_TEMP_LOG("[delay-event] set circ: %u state branch-2 active: %d hash-cnt: %d n_cell: %d", 
       ewfd_get_circuit_id(circ), __LINE__, hashent->muxinfo.cell_count, n_cells);
     ++(cmux->n_active_circuits);
     hashent->muxinfo.cell_count = n_cells;
     circuitmux_make_circuit_active(cmux, circ);
   } else {
-    EWFD_TEMP_LOG("set circ: %u state branch-3 do nothing: %d  hash-cnt: %d n_cell: %d",
+    EWFD_TEMP_LOG("[delay-event] set circ: %u state branch-3 do nothing: %d  hash-cnt: %d n_cell: %d",
       ewfd_get_circuit_id(circ), __LINE__, hashent->muxinfo.cell_count, n_cells);
     hashent->muxinfo.cell_count = n_cells;
   }
@@ -1093,6 +1101,8 @@ circuitmux_get_first_active_circuit(circuitmux_t *cmux,
 
   *destroy_queue_out = NULL;
 
+  EWFD_TEMP_LOG("[delay-event] step:get_first_active_circuit cmux:%p active-circs:%d", cmux, cmux->n_active_circuits);
+
   if (cmux->destroy_cell_queue.n &&
         (!cmux->last_cell_was_destroy || cmux->n_active_circuits == 0)) {
     /* We have destroy cells to send, and either we just sent a relay cell,
@@ -1102,6 +1112,7 @@ circuitmux_get_first_active_circuit(circuitmux_t *cmux,
     /* XXXX Alternating is not a terribly brilliant approach here. */
     *destroy_queue_out = &cmux->destroy_cell_queue;
 
+    EWFD_TEMP_LOG("[delay-event] step:get_first_active_circuit destroy_queue:%d", cmux->destroy_cell_queue.n);
     cmux->last_cell_was_destroy = 1;
   } else if (cmux->n_active_circuits > 0) {
     /* We also must have a cell available for this to be the case */
@@ -1110,6 +1121,7 @@ circuitmux_get_first_active_circuit(circuitmux_t *cmux,
     circ = cmux->policy->pick_active_circuit(cmux, cmux->policy_data);
     cmux->last_cell_was_destroy = 0;
   } else {
+    EWFD_TEMP_LOG("[delay-event] step:get_first_active_circuit no-circ:%d n_cells:%d", cmux->n_active_circuits, cmux->n_cells);
     tor_assert(cmux->n_cells == 0);
     tor_assert(cmux->destroy_cell_queue.n == 0);
   }
@@ -1173,6 +1185,7 @@ circuitmux_notify_xmit_cells(circuitmux_t *cmux, circuit_t *circ,
    */
   if (becomes_inactive) {
     --(cmux->n_active_circuits);
+    EWFD_TEMP_LOG("[delay-event] step:xmit_cell_inactive circ:%d", ewfd_get_circuit_id(circ));
     circuitmux_make_circuit_inactive(cmux, circ);
   }
 }
@@ -1312,7 +1325,7 @@ circuitmux_compare_muxes, (circuitmux_t *cmux_1, circuitmux_t *cmux_2))
 }
 
 void circuitmux_show_info(circuitmux_t *cmux) {
-  EWFD_TEMP_LOG("Circuitmux %p: %u circuits, %u active, %u cells, %u queued destroys",
+  EWFD_TEMP_LOG("[scheduler] Circuitmux %p: %u circuits, %u active, %u cells, %u queued destroys",
            cmux, cmux->n_circuits, cmux->n_active_circuits, cmux->n_cells,
            cmux->destroy_cell_queue.n);
 }

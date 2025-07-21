@@ -1,7 +1,7 @@
 #include "lib/smartlist_core/smartlist_core.h"
 #include "lib/time/compat_time.h"
 #include <stdio.h>
-#define EWFD_USE_TEMP_LOG
+// #define EWFD_USE_TEMP_LOG
 #include "feature/ewfd/debug.h"
 
 // 单元测试
@@ -75,6 +75,8 @@ typedef struct ewfd_event_queue_t {
 } ewfd_event_queue_st;
 
 // put in queue
+/* 如果sleep太久，后面就唤醒
+*/
 struct ewfd_delay_cell_t;
 typedef struct ewfd_delay_entry_t {
 	TOR_SIMPLEQ_ENTRY(ewfd_delay_entry_t) next;
@@ -101,6 +103,11 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data);
 static int ewfd_add_to_event_queue(ewfd_op_event_st *event);
 static bool handle_one_event(ewfd_op_event_st *event);
 static const char* event_op_to_str(ewfd_op_event_st *event);
+
+/* delay队列在cmux中唤醒
+* 如果完全没有任何active queue，全是sleep的，就主动唤醒delay的队列
+*/
+// static void ewfd_check_queue_delay();
 
 static uint32_t total_event_alloc = 0;
 
@@ -387,16 +394,15 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data) {
 
 		// 处理（last_pkt_ti, cur_ti] 区间内的包
 		int event_num = 0; // dummy pkt num
-		int loop = 5;
 		while ((cur_event = TOR_SIMPLEQ_FIRST(&queue->head)) != NULL) {
 			if (cur_event->insert_ti > range_end) {
 				break;
 			}
-			// EWFD_TEMP_LOG("[delay-event] step:process_one_event circ:%d ev-id:%d range:'%lu->%lu' insert-ti:%lu remain:%d all:%d tick:%d", 
-			// 	ewfd_get_circuit_id((circuit_t *) cur_event->on_circ), cur_event->event_id,
-			// 	range_start, range_end,
-			// 	cur_event->insert_ti, ewfd_get_event_num(cur_event->on_circ), 
-			// 	ewfd_framework_instance->ewfd_event_queue->queue_len, tick++);
+			EWFD_TEMP_LOG("[delay-event] step:process_one_event circ:%d ev-id:%d range:'%lu->%lu' insert-ti:%lu remain:%d all:%d tick:%d", 
+				ewfd_get_circuit_id((circuit_t *) cur_event->on_circ), cur_event->event_id,
+				range_start, range_end,
+				cur_event->insert_ti, ewfd_get_event_num(cur_event->on_circ), 
+				ewfd_framework_instance->ewfd_event_queue->queue_len, tick++);
 			
 			// 没处理完的保存在队列
 			bool is_processed = handle_one_event(cur_event);
@@ -411,18 +417,15 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data) {
 			else {
 				// 延期事件，加到尾部
 				// 是否需要按照时间排序？
-				cur_event->insert_ti += EWFD_EVENT_QUEUE_TICK_MS;
+				cur_event->insert_ti += EWFD_EVENT_QUEUE_TICK_MS * 3;
 				ewfd_event_queue_remove_first(queue, false);
-				EWFD_LOG("[delay-event] step:readd_event circ:%d id:%d insert-ti:%lu cur_ti:%lu", 
+				EWFD_TEMP_LOG("[delay-event] step:readd_event circ:%d id:%d insert-ti:%lu cur_ti:%lu", 
 					ewfd_get_circuit_id((circuit_t *) cur_event->on_circ), cur_event->event_id, cur_event->insert_ti, cur_ti);
 				
 				// printf("delay event: %lu id:%d\n", cur_event->insert_ti, cur_event->event_id);
 				// modify ti and reinsert
 				ewfd_add_to_event_queue(cur_event);
 			}
-			// if (--loop <= 0) {
-			// 	break;
-			// }
 		}
 
 		uint32_t remain = 0;
@@ -499,8 +502,8 @@ static int ewfd_add_to_event_queue(ewfd_op_event_st *event) {
 }
 
 static bool handle_one_event(ewfd_op_event_st *cur_event) {
-	EWFD_TEMP_LOG("[delay-event] step:handle_one_event ti:%lu op:%s cur_ti:%lu id:%d", cur_event->insert_ti, 
-			event_op_to_str(cur_event), monotime_absolute_msec(), cur_event->event_id);
+// 	EWFD_TEMP_LOG("[delay-event] step:handle_one_event ti:%lu op:%s cur_ti:%lu id:%d", cur_event->insert_ti, 
+// 			event_op_to_str(cur_event), monotime_absolute_msec(), cur_event->event_id);
 
 	circuit_t * cur_circ = (circuit_t *) cur_event->on_circ;
 	if (!is_valid_circuit(cur_event->on_circ)) {

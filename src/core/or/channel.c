@@ -56,6 +56,9 @@
 /* This one's for stuff only channel.c and the test suite should see */
 #define CHANNEL_FILE_PRIVATE
 
+// enable temp log for debug
+#define EWFD_USE_TEMP_LOG
+
 #include "core/or/or.h"
 #include "app/config/config.h"
 #include "core/mainloop/mainloop.h"
@@ -83,6 +86,8 @@
 #include "lib/time/compat_time.h"
 
 #include "core/or/cell_queue_st.h"
+
+#include "feature/ewfd/debug.h"
 
 /* Global lists of channels */
 
@@ -1757,6 +1762,11 @@ channel_flush_some_cells, (channel_t *chan, ssize_t num_cells))
       flushed = channel_flush_from_first_active_circuit(
           chan, clamped_num_cells);
     }
+    EWFD_TEMP_LOG("[scheduler] step:channel_flush_some_cells-send chan:%lu n_cells:%u", 
+      chan->global_identifier, circuitmux_num_cells(chan->cmux));
+  } else {
+    EWFD_TEMP_LOG("[scheduler] step:chan-not-open chan:%lu", 
+      chan->global_identifier);
   }
 
  done:

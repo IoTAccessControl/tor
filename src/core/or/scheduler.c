@@ -1,5 +1,7 @@
 /* Copyright (c) 2013-2021, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
+#include "lib/time/compat_time.h"
+#define EWFD_USE_TEMP_LOG
 
 #include "core/or/or.h"
 #include "app/config/config.h"
@@ -14,6 +16,7 @@
 #include "core/or/channeltls.h"
 
 #include "core/or/or_connection_st.h"
+
 #include "feature/ewfd/debug.h"
 /**
  * \file scheduler.c
@@ -574,12 +577,14 @@ scheduler_channel_has_waiting_cells,(channel_t *chan))
     /* If we made a channel pending, we potentially have scheduling work to
      * do. */
     the_scheduler->schedule();
+    EWFD_TEMP_LOG("[scheduler] step:schedule_has_waiting_cells-schedule-now chan:%lu state:%s", chan->global_identifier, get_scheduler_state_string(chan->scheduler_state)); 
   } else if (chan->scheduler_state == SCHED_CHAN_IDLE) {
     /*
      * It is not able to write but now has cells, so it becomes
      * SCHED_CHAN_WAITING_TO_WRITE.
      */
     scheduler_set_channel_state(chan, SCHED_CHAN_WAITING_TO_WRITE);
+    EWFD_TEMP_LOG("[scheduler] step:not_schedule_wait_to_write chan:%lu state:%s", chan->global_identifier, get_scheduler_state_string(chan->scheduler_state)); 
   }
 }
 
@@ -683,7 +688,8 @@ scheduler_channel_wants_writes(channel_t *chan)
     return;
   }
 
-  EWFD_TEMP_LOG("[scheduler] step:wants_writes chan:%lu state:%s", chan->global_identifier, get_scheduler_state_string(chan->scheduler_state)); 
+  EWFD_TEMP_LOG("[scheduler] step:wants_writes chan:%lu state:%s ti:%lu", chan->global_identifier, 
+    get_scheduler_state_string(chan->scheduler_state), monotime_absolute_msec()); 
 
   if (chan->scheduler_state == SCHED_CHAN_WAITING_TO_WRITE) {
     /*

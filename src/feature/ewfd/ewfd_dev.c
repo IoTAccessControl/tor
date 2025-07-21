@@ -203,7 +203,7 @@ static uint64_t dev_gan_on_tick(ewfd_circ_status_st *ewfd_status) {
 		ewfd_add_delay_packet(ewfd_status->on_circ, now_ti, send_ti, 10);
 	#elif defined(EWFD_USE_ADVANCE_DELAY)
 		// 每隔2s发送10个包
-		send_ti = 2000;
+		send_ti = 2000 + add_delay_pkt;
 		int op_ret = ewfd_op_delay(ewfd_status->on_circ, now_ti, send_ti, 3);
 	#endif
 		EWFD_TEMP_LOG("[delay-event] step:gan_add_delay circ:%d last_ti:%lu cur_ti:%lu"
