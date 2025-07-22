@@ -73,6 +73,7 @@ typedef struct cell_ewfd_delay_t {
 
   int heap_index;
   int sleep_hindex;
+  int inactive_hindex;
 } cell_ewfd_delay_t;
 
 /* circuitmux_t 保存多个circuit, 用policy记录这些circuit，每个circuit有自己的policy
@@ -89,6 +90,8 @@ typedef struct ewfd_policy_data_t {
    * in or_connection_t before that.
    */
   smartlist_t *active_circuit_pqueue;
+
+  smartlist_t *inactive_circuit_pqueue;
 
   /**
    * For delay based WP defense, we need to make the circuit sleep for a while to make a GAP after a burst stream.

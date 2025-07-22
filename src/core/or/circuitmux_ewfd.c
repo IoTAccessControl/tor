@@ -105,8 +105,10 @@ static int compare_cell_ewfd_sleep_circ(const void *p1, const void *p2);
 
 static void ewfd_add_to_active_queue(ewfd_policy_data_t* pol, cell_ewfd_delay_t *item);
 static void ewfd_add_to_sleep_queue(ewfd_policy_data_t* pol, cell_ewfd_delay_t *item);
+static void ewfd_add_to_inactive_queue(ewfd_policy_data_t* pol, cell_ewfd_delay_t *item);
 static void ewfd_remove_active_item(ewfd_policy_data_t *pol, cell_ewfd_delay_t *item);
 static void ewfd_remove_sleep_item(ewfd_policy_data_t *pol, cell_ewfd_delay_t *ewfd_item);
+static void ewfd_remove_inactive_item(ewfd_policy_data_t *pol, cell_ewfd_delay_t *ewfd_item);
 static void ewfd_active_one_sleep_item(ewfd_policy_data_t *pol);
 static int ewfd_get_cell_on_queue(circuit_t *circ);
 static const char* get_delay_state_string(int delay_state);
@@ -129,6 +131,24 @@ circuitmux_policy_t ewfd_delay_policy = {
   /*.cmp_cmux =*/ ewfd_delay_cmp_cmux
 };
 
+/*
+方案-1-补丁：在set_advance delay时另外发包唤醒队列
+包如果进入了gap，就加入到sleep队列。circ null, 整个chan不被调度（scheduler->waint_cells）
+
+预期效果：就算移到了队列外面，也会被唤醒。应该能正常发完包，不会被影响。  
+pick_active: 从active queue poll
+xmit_cell: 状态检查，burst -> gap
+set_num: 什么也不做（后面：gap -> burst, 将sleep -> active）
+
+set_advance_delay: 
+burst: 
+- 没包：发送一个包
+- 有包：移到active_queue，并且唤醒调度 
+gap: 
+- 更新时间
+
+*/
+
 static int ewfd_cmux_idx = 0;
 static circuitmux_policy_data_t * ewfd_delay_alloc_cmux_data(circuitmux_t *cmux) {
   tor_assert(cmux);
@@ -137,6 +157,7 @@ static circuitmux_policy_data_t * ewfd_delay_alloc_cmux_data(circuitmux_t *cmux)
   pol->base_.magic = EWFD_POL_DATA_MAGIC;
   pol->active_circuit_pqueue = smartlist_new();
   pol->sleep_circuit_pqueue = smartlist_new();
+  pol->inactive_circuit_pqueue = smartlist_new();
   pol->idx = ewfd_cmux_idx++;
   return TO_CMUX_POL_DATA(pol);
 }
@@ -151,6 +172,7 @@ static void ewfd_delay_free_cmux_data(circuitmux_t *cmux,
   ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
   smartlist_free(pol->active_circuit_pqueue);
   smartlist_free(pol->sleep_circuit_pqueue);
+  smartlist_free(pol->inactive_circuit_pqueue);
   memwipe(pol, 0xda, sizeof(ewfd_policy_data_t));
   tor_free(pol);
 }
@@ -169,6 +191,7 @@ ewfd_delay_alloc_circ_data(circuitmux_t *cmux, circuitmux_policy_data_t *pol_dat
   pol_circ->cell_ewfd_delay.delay_state = EWFD_MODE_NORMAL;
   pol_circ->cell_ewfd_delay.heap_index = -1;
   pol_circ->cell_ewfd_delay.sleep_hindex = -1;
+  pol_circ->cell_ewfd_delay.inactive_hindex = -1;
 
   return TO_CMUX_POL_CIRC_DATA(pol_circ);
 }
@@ -187,12 +210,9 @@ static void ewfd_delay_free_circ_data(circuitmux_t *cmux,
   // TODO: 
   EWFD_LOG("[delay-event] step:free-policy circ:%d", ewfd_get_circuit_id(circ));
   // remove pol from queues
-  if (circ_data->cell_ewfd_delay.heap_index != -1) {
-    ewfd_remove_active_item(pol, &circ_data->cell_ewfd_delay);
-  }
-  if (circ_data->cell_ewfd_delay.sleep_hindex != -1) {
-    ewfd_remove_sleep_item(pol, &circ_data->cell_ewfd_delay);
-  }
+  ewfd_remove_active_item(pol, &circ_data->cell_ewfd_delay);
+  ewfd_remove_sleep_item(pol, &circ_data->cell_ewfd_delay);
+  ewfd_remove_inactive_item(pol, &circ_data->cell_ewfd_delay);
 
   ewfd_log_all_queue_circuits(pol, "[delay-event] free-policy");
 
@@ -213,10 +233,6 @@ static void ewfd_delay_notify_circ_active(circuitmux_t *cmux,
   ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
   cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
 
-  EWFD_TEMP_LOG("[delay-event] step:active circ:%d state:%s cur:%u burst:%u remain:%u", 
-    ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), 
-    delay_item->cur_send_cnt, delay_item->burst_send_cnt, delay_item->remain_real_pkt);
-
 
   if (delay_item->delay_state == EWFD_MODE_NORMAL) {
     // EWFD_LOG("[delay-event] step:add_to_active_queue circ:%d state:%s", ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state));
@@ -233,8 +249,9 @@ static void ewfd_delay_notify_circ_active(circuitmux_t *cmux,
     ewfd_add_to_sleep_queue(pol, delay_item);
   }
 
-  // EWFD_LOG("add active item: %d", EWFD_MODE_BURST);
-    // ewfd_add_to_active_queue(pol, delay_item);
+  ewfd_remove_inactive_item(pol, delay_item);
+
+  ewfd_log_all_queue_circuits(pol, "[delay-event] active");
 }
 
 /*
@@ -251,35 +268,34 @@ static void ewfd_delay_notify_circ_inactive(circuitmux_t *cmux,
   tor_assert(pol_circ_data);
 
   ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
-  // if (pol->base_.magic != EWFD_POL_DATA_MAGIC) {
-  //   return;
-  // }
 
   ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
   cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
 
+  if (delay_item->delay_state == EWFD_MODE_NORMAL) {
+    ewfd_remove_active_item(pol, delay_item);
+    return;
+  }
+
   // 包全部发送完才会inactive  
   // tor_assert(delay_item->burst_send_cnt <= delay_item->cur_send_cnt);
 
-  EWFD_TEMP_LOG("[delay-event] step:inactive circ:%d alen:%d slen:%d burst:%u send:%u remain:%u state:%s", ewfd_get_circuit_id(circ),
-    smartlist_len(pol->active_circuit_pqueue), smartlist_len(pol->sleep_circuit_pqueue), 
-    delay_item->burst_send_cnt, delay_item->cur_send_cnt, delay_item->remain_real_pkt, get_delay_state_string(delay_item->delay_state));
+  // EWFD_TEMP_LOG("[delay-event] step:inactive circ:%d alen:%d slen:%d burst:%u send:%u remain:%u state:%s", ewfd_get_circuit_id(circ),
+  //   smartlist_len(pol->active_circuit_pqueue), smartlist_len(pol->sleep_circuit_pqueue), 
+  //   delay_item->burst_send_cnt, delay_item->cur_send_cnt, delay_item->remain_real_pkt, get_delay_state_string(delay_item->delay_state));
+
   
   // remove from queues
-  if (delay_item->heap_index != -1) {
-    // EWFD_LOG("[delay-event] step:remove_from_active_queue circ:%d state:%s cur:%u burst:%u", ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), delay_item->cur_send_cnt, delay_item->burst_send_cnt);
-    ewfd_remove_active_item(pol, delay_item);
-  }
-  if (delay_item->sleep_hindex != -1) {
-    // EWFD_LOG("[delay-event] step:remove_from_sleep_queue circ:%d state:%s cur:%u burst:%u", ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), delay_item->cur_send_cnt, delay_item->burst_send_cnt);
-    ewfd_remove_sleep_item(pol, delay_item);
-  }
+  ewfd_remove_active_item(pol, delay_item);
+  ewfd_remove_sleep_item(pol, delay_item);
+
+  ewfd_add_to_inactive_queue(pol, delay_item);
   
   ewfd_log_all_queue_circuits(pol, "[delay-event] inactive");
 }
 
 /*
-* TODO: 当两种算法都启用时就包含delay包，因此需要将delay也改成基于poll的？
+* set_num: 仅更新包数量  
 */
 static void ewfd_delay_set_n_cells(circuitmux_t *cmux,
                              circuitmux_policy_data_t *pol_data,
@@ -291,11 +307,11 @@ static void ewfd_delay_set_n_cells(circuitmux_t *cmux,
   tor_assert(circ);
   tor_assert(pol_circ_data);
 
-  // is free
-  ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
-  if (pol->base_.magic != EWFD_POL_DATA_MAGIC) {
-    return;
-  }
+  // // is free
+  // ewfd_policy_data_t *pol = TO_EWFD_POL_DATA(pol_data);
+  // if (pol->base_.magic != EWFD_POL_DATA_MAGIC) {
+  //   return;
+  // }
 
   ewfd_policy_circ_data_t *circ_data = TO_EWFD_POL_CIRC_DATA(pol_circ_data);
   cell_ewfd_delay_t *delay_item = &circ_data->cell_ewfd_delay;
@@ -303,32 +319,12 @@ static void ewfd_delay_set_n_cells(circuitmux_t *cmux,
   // 更新包数量：由queue中包的数量来自动更新
   delay_item->remain_real_pkt = n_cells;
 
-  EWFD_TEMP_LOG("[delay-event] step:set_n_cells circ:%d cur:%u burst:%u remain:%u state:%s", 
-    ewfd_get_circuit_id(circ), delay_item->cur_send_cnt, delay_item->burst_send_cnt, 
-    delay_item->remain_real_pkt, get_delay_state_string(delay_item->delay_state));
-
-  ewfd_log_all_queue_circuits(pol, "[delay-event] set_n_cells");
-
-  if (delay_item->delay_state == EWFD_MODE_NORMAL) {
-    return;
-  }
-
-  // active queue
-  ewfd_active_one_sleep_item(pol);
-
-  // // EWFD_LOG("Set Remain Real Packet: %u circ: %p circ_data: %p", delay_item->remain_real_pkt, circ, circ_data);
-  // if (delay_item->delay_state == EWFD_MODE_GAP) {
-  //   ewfd_add_to_sleep_queue(pol, delay_item);
-  // } else {
-  //   tor_assert(delay_item->delay_state == EWFD_MODE_BURST);
-  //   ewfd_add_to_active_queue(pol, delay_item);
-  // }
 }
 
 // n_cells: 发送的包数量（dummy + real, 优先发real）
 /**
- * 需要考虑普通模式，没有BURST/GAP
- * 发送完，就sleep队列。需要set burst去唤醒，或者sleep太久，且有包就唤醒
+ * 更新active_queue位置
+ * burst -> gap
  */
 static void ewfd_delay_notify_xmit_cells(circuitmux_t *cmux,
                        circuitmux_policy_data_t *pol_data,
@@ -346,6 +342,8 @@ static void ewfd_delay_notify_xmit_cells(circuitmux_t *cmux,
 
   // 更新包数量
   delay_item->cur_send_cnt += n_cells;
+  delay_item->remain_real_pkt -= n_cells;
+
   // NORMAL mode不需要管delay  
   if (delay_item->delay_state == EWFD_MODE_NORMAL) {
     return;
@@ -354,31 +352,35 @@ static void ewfd_delay_notify_xmit_cells(circuitmux_t *cmux,
   // update burst_finish_ti of each cell
   delay_item->burst_finish_ti = monotime_absolute_msec();
 
-  EWFD_TEMP_LOG("[delay-event] step:xmit_cell circ:%d n_cell:%u burst:%u cur:%u state:%s", ewfd_get_circuit_id(circ), n_cells, 
-    delay_item->burst_send_cnt, delay_item->cur_send_cnt, get_delay_state_string(delay_item->delay_state));
+  // EWFD_TEMP_LOG("[delay-event] step:xmit_cell circ:%d n_cell:%u burst:%u cur:%u state:%s", ewfd_get_circuit_id(circ), n_cells, 
+  //   delay_item->burst_send_cnt, delay_item->cur_send_cnt, get_delay_state_string(delay_item->delay_state));
 
   // gap -> finish -> normal
   if (delay_item->burst_send_cnt == 0) {
     delay_item->delay_state = EWFD_MODE_NORMAL;
-    EWFD_TEMP_LOG("[delay-event] step:xmit_cell-normal circ:%d", ewfd_get_circuit_id(circ));
+    // EWFD_TEMP_LOG("[delay-event] step:xmit_cell-normal circ:%d", ewfd_get_circuit_id(circ));
     return;
   }
 
   // 当前burst发送完毕，进入gap状态
   if (delay_item->cur_send_cnt >= delay_item->burst_send_cnt) {
-    EWFD_TEMP_LOG("[delay-state] step:xmit_cell_gap circ:%d state:%s->%s", ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), get_delay_state_string(EWFD_MODE_GAP));
+    // EWFD_TEMP_LOG("[delay-state] step:xmit_cell_gap circ:%d state:%s->%s", ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), get_delay_state_string(EWFD_MODE_GAP));
     // EWFD_TEMP_LOG("[delay-event] step:deactive_circ cric:%d switch:%s", circ->n_circ_id, get_delay_state_string(EWFD_MODE_GAP));
     delay_item->delay_state = EWFD_MODE_GAP;
     delay_item->burst_send_cnt = 0;
     delay_item->cur_send_cnt = 0;
     ewfd_add_to_sleep_queue(pol, delay_item);
-  } else {
+  } 
+  if (delay_item->delay_state == EWFD_MODE_BURST) {
     // still in burst, re-add to update position
     delay_item->delay_state = EWFD_MODE_BURST;
-    // cell_ewfd_delay_t *first = smartlist_get(pol->active_circuit_pqueue, 0);
-    // tor_assert(first == delay_item);
+    cell_ewfd_delay_t *first = smartlist_pqueue_pop(pol->active_circuit_pqueue, 
+      compare_cell_ewfd_active_circ, offsetof(cell_ewfd_delay_t, heap_index));
+    tor_assert(first == delay_item);
     ewfd_add_to_active_queue(pol, delay_item);
   }
+
+  ewfd_log_all_queue_circuits(pol, "[delay-event] xmit_cell");
 }
 
 /* 返回时间到了发送界限，并且有真实包的对列
@@ -397,7 +399,7 @@ static circuit_t * ewfd_delay_pick_active_circuit(circuitmux_t *cmux,
   /*
   * 从sleep queue唤醒一个 delay_item
   */
-  ewfd_active_one_sleep_item(pol);
+  // ewfd_active_one_sleep_item(pol);
 
   // DEAD_CIRCUIT_MAGIC, pick的已经free (circuit_free_)
   if (smartlist_len(pol->active_circuit_pqueue) > 0) {
@@ -406,45 +408,19 @@ static circuit_t * ewfd_delay_pick_active_circuit(circuitmux_t *cmux,
     tor_assert(circ_data);
     circ = circ_data->circ;
 
-    int cell_on_queue = ewfd_get_cell_on_queue(circ);
-    
-    EWFD_TEMP_LOG("[delay-event] step:pick_active state:%s circ:%d q-len:%d cur:%u burst:%u remain:%u has:%u destroy:%u dummy:%u", 
-      get_delay_state_string(delay_item->delay_state), ewfd_get_circuit_id(circ_data->circ), smartlist_len(pol->active_circuit_pqueue), 
-      delay_item->cur_send_cnt, delay_item->burst_send_cnt, delay_item->remain_real_pkt, cell_on_queue, 
-      cmux->destroy_cell_queue.n, delay_item->send_dummy_pkt);
-
-    /* 当real packet数量不足时，往队列加dummy包
-    */
-    if (circ) {
-      if (delay_item->delay_state == EWFD_MODE_BURST) {
-        if (cmux->destroy_cell_queue.n > 0) {
-          delay_item->delay_state = EWFD_MODE_DESTROY;
-          EWFD_TEMP_LOG("[delay-event] step:pick_active_destroy circ:%d destroy:%u", 
-            ewfd_get_circuit_id(circ), cmux->destroy_cell_queue.n);
-            return circ;
-        }
-
-        // 当real packet数量不足时，为了避免发送完就inactive，往队列加dummy包
-        // 没有真实包，需要加2个dummy包
-        // 只有1个真实包，但是剩下的包>1，需要加dummy包
-        if (delay_item->cur_send_cnt < delay_item->burst_send_cnt) {
-          int n_pkt = delay_item->burst_send_cnt - delay_item->cur_send_cnt;
-          if (delay_item->remain_real_pkt == 0) {
-            ewfd_send_dummy_packet(circ, delay_item);
-            EWFD_TEMP_LOG("[delay-event] step:check-dummy circ:%d cur:%u burst:%u remain:%u n-pkt:%d dummy:%u", ewfd_get_circuit_id(circ), 
-              delay_item->cur_send_cnt, delay_item->burst_send_cnt, delay_item->remain_real_pkt, n_pkt, delay_item->send_dummy_pkt);
-          }
-          if (n_pkt > 1 && delay_item->remain_real_pkt < 2) {
-            ewfd_send_dummy_packet(circ, delay_item);
-            EWFD_TEMP_LOG("[delay-event] step:check-dummy circ:%d cur:%u burst:%u remain:%u n-pkt:%d dummy:%u", ewfd_get_circuit_id(circ), 
-              delay_item->cur_send_cnt, delay_item->burst_send_cnt, delay_item->remain_real_pkt, n_pkt, delay_item->send_dummy_pkt);
-          }
-        }
-        
-      }
+    // 任何时候不应该poll 到数量为0的circ
+    if (delay_item->remain_real_pkt == 0) {
+      ewfd_log_all_queue_circuits(pol, "[delay-event] pick_active_no_cell");
+      tor_assert(delay_item->remain_real_pkt > 0);
     }
   } else {
     EWFD_TEMP_LOG("[delay-event] step:pick_active_no_circ");
+  }
+
+  // tor_assert(circ);
+  if (circ == NULL) {
+    ewfd_log_all_queue_circuits(pol, "[delay-event] pick_active_no_circ");
+    // tor_assert(circ);
   }
  
   return circ;
@@ -453,12 +429,16 @@ static circuit_t * ewfd_delay_pick_active_circuit(circuitmux_t *cmux,
 // 同时只能在一个对列，先检查是否存在
 static void ewfd_add_to_active_queue(ewfd_policy_data_t* pol, cell_ewfd_delay_t *item) {
   if (item->heap_index != -1) {
-    smartlist_pqueue_remove(pol->active_circuit_pqueue, compare_cell_ewfd_sleep_circ,
+    smartlist_pqueue_remove(pol->active_circuit_pqueue, compare_cell_ewfd_active_circ,
       offsetof(cell_ewfd_delay_t, heap_index), item);
   }
   if (item->sleep_hindex != -1) {
     smartlist_pqueue_remove(pol->sleep_circuit_pqueue, compare_cell_ewfd_sleep_circ,
       offsetof(cell_ewfd_delay_t, sleep_hindex), item);
+  }
+  if (item->inactive_hindex != -1) {
+    smartlist_pqueue_remove(pol->inactive_circuit_pqueue, compare_cell_ewfd_sleep_circ,
+      offsetof(cell_ewfd_delay_t, inactive_hindex), item);
   }
   smartlist_pqueue_add(pol->active_circuit_pqueue, compare_cell_ewfd_active_circ,
     offsetof(cell_ewfd_delay_t, heap_index), item);
@@ -478,15 +458,26 @@ static void ewfd_add_to_sleep_queue(ewfd_policy_data_t* pol, cell_ewfd_delay_t *
     offsetof(cell_ewfd_delay_t, sleep_hindex), item);
 }
 
+static void ewfd_add_to_inactive_queue(ewfd_policy_data_t* pol, cell_ewfd_delay_t *item)
+{
+  if (item->inactive_hindex != -1) {
+    smartlist_pqueue_remove(pol->inactive_circuit_pqueue, compare_cell_ewfd_sleep_circ,
+      offsetof(cell_ewfd_delay_t, inactive_hindex), item);
+  }
+  smartlist_pqueue_add(pol->inactive_circuit_pqueue, compare_cell_ewfd_sleep_circ,
+    offsetof(cell_ewfd_delay_t, inactive_hindex), item);
+}
+
 static void ewfd_remove_active_item(ewfd_policy_data_t *pol, cell_ewfd_delay_t *ewfd_item) {
     tor_assert(pol);
     tor_assert(pol->active_circuit_pqueue);
     tor_assert(ewfd_item);
-    tor_assert(ewfd_item->heap_index != -1);
-    smartlist_pqueue_remove(pol->active_circuit_pqueue,
-                        compare_cell_ewfd_active_circ,
-                        offsetof(cell_ewfd_delay_t, heap_index),
-                        ewfd_item);
+    if (ewfd_item->heap_index != -1) {
+      smartlist_pqueue_remove(pol->active_circuit_pqueue,
+                          compare_cell_ewfd_active_circ,
+                          offsetof(cell_ewfd_delay_t, heap_index),
+                          ewfd_item);
+    }
     // ewfd_log_all_queue_circuits(pol, "[delay-event] remove_active_item");
 }
 
@@ -494,50 +485,69 @@ static void ewfd_remove_sleep_item(ewfd_policy_data_t *pol, cell_ewfd_delay_t *e
   tor_assert(pol);
   tor_assert(pol->active_circuit_pqueue);
   tor_assert(ewfd_item);
-  tor_assert(ewfd_item->sleep_hindex != -1);
-  smartlist_pqueue_remove(pol->sleep_circuit_pqueue,
-                      compare_cell_ewfd_active_circ,
-                      offsetof(cell_ewfd_delay_t, sleep_hindex),
-                      ewfd_item);
+  if (ewfd_item->sleep_hindex != -1) {
+    smartlist_pqueue_remove(pol->sleep_circuit_pqueue,
+                        compare_cell_ewfd_active_circ,
+                        offsetof(cell_ewfd_delay_t, sleep_hindex),
+                        ewfd_item);
+  }
+}
+
+static void ewfd_remove_inactive_item(ewfd_policy_data_t *pol, cell_ewfd_delay_t *ewfd_item)
+{
+  tor_assert(pol);
+  tor_assert(pol->inactive_circuit_pqueue);
+  tor_assert(ewfd_item);
+  if (ewfd_item->inactive_hindex != -1) {
+    smartlist_pqueue_remove(pol->inactive_circuit_pqueue,
+                        compare_cell_ewfd_sleep_circ,
+                        offsetof(cell_ewfd_delay_t, inactive_hindex), ewfd_item);
+  }
 }
 
 /* 需要考虑没有设置burst，那么cur_send_cnt会一直增加  
-* 1. 先发送burst ti最接近的
-* 2. 再先发送包少的对列（早点发完）
+* 1. 先发送真实包多的队列
 * cur_send_pkt, burst_send_cnt, 先发left最少的
 */
 static int compare_cell_ewfd_active_circ(const void *p1, const void *p2) {
   const cell_ewfd_delay_t *a = p1, *b = p2;
 
-  // 普通模式，先发包少的队列
-  if (a->delay_state == EWFD_MODE_NORMAL || b->delay_state == EWFD_MODE_NORMAL) {
-    if (a->remain_real_pkt > b->remain_real_pkt) {
-      return -1;
-    }
-    return 1;
-  }
-
-  // burst mode
-  if (a->delay_state == EWFD_MODE_BURST && b->delay_state != EWFD_MODE_BURST) {
-    return 1;
-  }
-  if (b->delay_state == EWFD_MODE_BURST && a->delay_state != EWFD_MODE_BURST) {
+  // 
+  if (a->remain_real_pkt > b->remain_real_pkt) {
     return -1;
-  }
-  // tor_assert(a->delay_state == EWFD_MODE_BURST || b->delay_state == EWFD_MODE_BURST);
-  tor_assert(a->burst_send_cnt >= a->cur_send_cnt);
-  tor_assert(b->burst_send_cnt >= b->cur_send_cnt);
-
-  uint32_t a_remain = a->burst_send_cnt - a->cur_send_cnt;
-  uint32_t b_remain = b->burst_send_cnt - b->cur_send_cnt;
-  // EWFD_LOG("cur: %u burst: %u", a->cur_send_cnt, a->burst_send_cnt);
-
-  if (a_remain < b_remain) {
+  } else {
     return 1;
-  } else if (a_remain > b_remain) {
-    return -1;
   }
-  return 0;
+
+  // 普通模式，先发真实包少的队列
+  // if (a->delay_state == EWFD_MODE_NORMAL || b->delay_state == EWFD_MODE_NORMAL) {
+  //   if (a->remain_real_pkt > b->remain_real_pkt) {
+  //     return -1;
+  //   }
+  //   return 1;
+  // }
+
+  // // burst mode
+  // if (a->delay_state == EWFD_MODE_BURST && b->delay_state != EWFD_MODE_BURST) {
+  //   return 1;
+  // }
+  // if (b->delay_state == EWFD_MODE_BURST && a->delay_state != EWFD_MODE_BURST) {
+  //   return -1;
+  // }
+  // // tor_assert(a->delay_state == EWFD_MODE_BURST || b->delay_state == EWFD_MODE_BURST);
+  // tor_assert(a->burst_send_cnt >= a->cur_send_cnt);
+  // tor_assert(b->burst_send_cnt >= b->cur_send_cnt);
+
+  // uint32_t a_remain = a->burst_send_cnt - a->cur_send_cnt;
+  // uint32_t b_remain = b->burst_send_cnt - b->cur_send_cnt;
+  // // EWFD_LOG("cur: %u burst: %u", a->cur_send_cnt, a->burst_send_cnt);
+
+  // if (a_remain < b_remain) {
+  //   return 1;
+  // } else if (a_remain > b_remain) {
+  //   return -1;
+  // }
+  // return 0;
 }
 
 /*
@@ -621,7 +631,14 @@ static void ewfd_active_one_sleep_item(ewfd_policy_data_t *pol) {
     sleep_item->delay_state = EWFD_MODE_BURST;
     ewfd_add_to_active_queue(pol, sleep_item);
     // 
-    ewfd_cmux_revoke_sleep_channel(circ_data);
+    // ewfd_cmux_revoke_sleep_channel(circ_data);
+
+    // 唤醒之后需要增加一个dummy包
+    if (sleep_item->burst_send_cnt > sleep_item->cur_send_cnt && sleep_item->remain_real_pkt == 0) {
+      ewfd_send_dummy_packet(circ_data->circ, sleep_item);
+      EWFD_TEMP_LOG("[delay-event] step:wake_sleep_item-dummy circ:%d cur:%u burst:%u remain:%u", 
+        ewfd_get_circuit_id(circ_data->circ), sleep_item->cur_send_cnt, sleep_item->burst_send_cnt, sleep_item->remain_real_pkt); 
+    }
   }
 }
 
@@ -641,8 +658,10 @@ static const char* get_delay_state_string(int delay_state)
 }
 
 /* API 语义： 发送完pkt_num个包，gap一段时间。
-* set to burst
-* return: need to wait ?
+* 
+* 方案-1: 唤醒gap/burst忙等队列
+burst: pkt=0, 发送一个包。pkt=1, active队列，唤醒kschduler
+gap: pkt=0, 更新时间。gap的队列不应该出现在active_queue中，但是往gap队列加包，仍然会触发pick_active，如果没有别的active circ,此时应该是NULL circ。
 */
 bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t pkt_num) {
   channel_t *chan = NULL;
@@ -679,6 +698,7 @@ bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t 
   if (delay_item->delay_state == EWFD_MODE_DESTROY) {
     EWFD_TEMP_LOG("[delay-event] step:destroy_to_burst circ:%d burst:%u remain:%u", 
       ewfd_get_circuit_id(circ), pkt_num, delay_item->remain_real_pkt);
+    tor_assert(0);
     return false;
   }
 
@@ -693,32 +713,43 @@ bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t 
     delay_item->burst_send_cnt = pkt_num;
     delay_item->cur_send_cnt = 0;
     delay_item->burst_finish_ti = monotime_absolute_msec();
-    ewfd_add_to_active_queue(pol, delay_item);
+    
+    if (delay_item->remain_real_pkt == 0) {
+      ewfd_send_dummy_packet(circ, delay_item);
+    } else {
+      ewfd_add_to_active_queue(pol, delay_item);
+      scheduler_channel_has_waiting_cells(chan);
+    }
     return false;
   }
 
   uint64_t cur_ti = monotime_absolute_msec();
+  uint64_t gap_finish_ti = delay_item->burst_finish_ti + gap_ti_ms;
   if (delay_item->delay_state == EWFD_MODE_GAP) {
-    uint64_t gap_finish_ti = delay_item->burst_finish_ti + gap_ti_ms;
     if (gap_finish_ti <= cur_ti) {
       EWFD_TEMP_LOG("[delay-event] step:set_advance_delay circ:%d state:%s->%s li:%d", 
         ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), "WAIT_TO_BURST", __LINE__);
       delay_item->delay_state = EWFD_MODE_WAIT_TO_BURST;
-      // 如果gap结束，需要唤醒delay队列
-      ewfd_cmux_revoke_sleep_channel(circ_data);
-      // 如果没有包就不会调度
-      if (delay_item->remain_real_pkt == 0) {
-        ewfd_send_dummy_packet(circ, delay_item);
-        EWFD_TEMP_LOG("[delay-event] step:set_advance_delay-dummy circ:%d state:%s->%s li:%d", 
-          ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), "WAIT_TO_BURST", __LINE__);
-      }
-      ewfd_log_all_queue_circuits(pol, "[delay-event] revoke_sleep_channel");
     }
   }
 
-  // EWFD_LOG("[delay-event] step:set_advance_delay gap:%lu pkt:%u cur:%u burst:%u state:%s in_active:%d, in_sleep:%d", gap_ti_ms, 
-  //     pkt_num, delay_item->cur_send_cnt, delay_item->burst_send_cnt, get_delay_state_string(delay_item->delay_state),
-  //     delay_item->heap_index != -1, delay_item->sleep_hindex != -1);
+  // 
+  if (delay_item->delay_state == EWFD_MODE_BURST) {
+    if (delay_item->burst_send_cnt > delay_item->cur_send_cnt && delay_item->remain_real_pkt == 0) {
+      ewfd_send_dummy_packet(circ, delay_item);
+      EWFD_TEMP_LOG("[delay-event] step:set_advance_delay-dummy circ:%d state:%s->%s li:%d", 
+        ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), "BURST", __LINE__);
+    } else if (delay_item->inactive_hindex != -1) {
+      // 唤醒调度
+      ewfd_add_to_active_queue(pol, delay_item);
+      scheduler_channel_has_waiting_cells(chan);
+    }
+  }
+
+  EWFD_LOG("[delay-event] step:set_advance_delay cmux-id:%d circ:%d state:%s gap:%lu cur_ti:%lu want:%u cur:%u burst:%u remain:%u in_active:%d, in_sleep:%d", 
+      pol->idx, ewfd_get_circuit_id(circ), get_delay_state_string(delay_item->delay_state), gap_finish_ti, cur_ti, 
+      pkt_num, delay_item->cur_send_cnt, delay_item->burst_send_cnt, delay_item->remain_real_pkt, 
+      delay_item->heap_index != -1, delay_item->sleep_hindex != -1);
 
   // 上次gap是否结束
   if (delay_item->delay_state != EWFD_MODE_WAIT_TO_BURST) {
@@ -728,12 +759,6 @@ bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t 
     //   get_delay_state_string(delay_item->delay_state), delay_item->burst_finish_ti, delay_item->burst_finish_ti + gap_ti_ms, cur_ti);
     return true;
   }
-  // 不在active queue
-  // tor_assert(delay_item->heap_index == -1);
-  // tor_assert(delay_item->burst_send_cnt == 0 && delay_item->cur_send_cnt == 0);
-
-  // EWFD_TEMP_LOG("[delay-event] step:set_advance_delay status:burst circ:%d cur:%u pkt:%u remain:%u", 
-    // ewfd_get_circuit_id(circ), delay_item->cur_send_cnt, pkt_num, delay_item->remain_real_pkt);
 
   EWFD_TEMP_LOG("[delay-state] step:set_advance_delay cmux:%p cmux-id:%d circ:%d state:%s->%s cur:%u burst:%u remain:%u", cmux, pol->idx, ewfd_get_circuit_id(circ), 
     get_delay_state_string(delay_item->delay_state), "BURST", delay_item->cur_send_cnt, delay_item->burst_send_cnt, delay_item->remain_real_pkt);
@@ -743,9 +768,16 @@ bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t 
   delay_item->cur_send_cnt = 0;
   delay_item->burst_send_cnt = pkt_num;
 
-  ewfd_add_to_active_queue(pol, delay_item);
+  if (delay_item->remain_real_pkt == 0) {
+    ewfd_send_dummy_packet(circ, delay_item);
+  } else {
+    ewfd_add_to_active_queue(pol, delay_item);
+    scheduler_channel_has_waiting_cells(chan);
+  }
 
-  ewfd_log_all_queue_circuits(pol, "[delay-event] set_advance_delay");
+  // ewfd_add_to_active_queue(pol, delay_item);
+
+  // ewfd_log_all_queue_circuits(pol, "[delay-event] set_advance_delay");
 
   return false;
 }
@@ -765,7 +797,8 @@ static void ewfd_log_all_queue_circuits(ewfd_policy_data_t *pol, const char *con
 #ifdef EWFD_TEMP_LOG
   char active_circs[512] = {0};
   char sleep_circs[512] = {0};
-  int active_pos = 0, sleep_pos = 0;
+  char inactive_circs[512] = {0};
+  int active_pos = 0, sleep_pos = 0, inactive_pos = 0;
   
   // Build active queue circuit list
   SMARTLIST_FOREACH_BEGIN(pol->active_circuit_pqueue, cell_ewfd_delay_t *, it) {
@@ -794,6 +827,18 @@ static void ewfd_log_all_queue_circuits(ewfd_policy_data_t *pol, const char *con
       }
     }
   } SMARTLIST_FOREACH_END(it);
+
+  SMARTLIST_FOREACH_BEGIN(pol->inactive_circuit_pqueue, cell_ewfd_delay_t *, it) {
+    ewfd_policy_circ_data_t *circ_data = SUBTYPE_P(it, ewfd_policy_circ_data_t, cell_ewfd_delay);
+    if (circ_data && circ_data->circ) {
+      int written = snprintf(inactive_circs + inactive_pos, sizeof(inactive_circs) - inactive_pos, 
+                           "%d(%s,%u/%u,%u),", ewfd_get_circuit_id(circ_data->circ), 
+                           get_delay_state_string(it->delay_state), it->cur_send_cnt, it->burst_send_cnt, it->remain_real_pkt);
+      if (written > 0 && inactive_pos + written < sizeof(inactive_circs)) {
+        inactive_pos += written;
+      }
+    }
+  } SMARTLIST_FOREACH_END(it);
   
   // Remove trailing comma if exists
   if (active_pos > 0 && active_circs[active_pos-1] == ',') {
@@ -802,10 +847,14 @@ static void ewfd_log_all_queue_circuits(ewfd_policy_data_t *pol, const char *con
   if (sleep_pos > 0 && sleep_circs[sleep_pos-1] == ',') {
     sleep_circs[sleep_pos-1] = '\0';
   }
+  if (inactive_pos > 0 && inactive_circs[inactive_pos-1] == ',') {
+    inactive_circs[inactive_pos-1] = '\0';
+  }
   
-  EWFD_TEMP_LOG("%s cmux-id[%d] active[%u]:[%s] sleep[%u]:[%s]", 
+  EWFD_TEMP_LOG("%s cmux-id[%d] active[%u]:[%s] sleep[%u]:[%s] inactive[%u]:[%s]", 
     context, pol->idx, smartlist_len(pol->active_circuit_pqueue), active_circs,
-    smartlist_len(pol->sleep_circuit_pqueue), sleep_circs);
+    smartlist_len(pol->sleep_circuit_pqueue), sleep_circs,
+    smartlist_len(pol->inactive_circuit_pqueue), inactive_circs);
 #endif
 } 
 

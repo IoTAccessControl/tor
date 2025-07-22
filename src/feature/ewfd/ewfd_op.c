@@ -382,7 +382,6 @@ bool ewfd_paddding_op_delay_notify_impl(circuit_t *circ) {
 		chan = TO_OR_CIRCUIT(circ)->p_chan;
 	}
 
-	circuitmux_make_circuit_active(chan->cmux, circ);
 	scheduler_channel_has_waiting_cells(chan);
 
 	EWFD_TEMP_LOG("active delay circ: %u", ewfd_get_circuit_id(circ));
