@@ -186,7 +186,7 @@ static void test_cmux_ewfd_delay_policy_circ_data(void *args) {
   // tt_uint_op(delay_data->cell_ewfd_delay.next_burst_ti, OP_EQ, 0);
   // tt_uint_op(delay_data->cell_ewfd_delay.remain_real_pkt, OP_EQ, 0);
   // tt_uint_op(delay_data->cell_ewfd_delay.next_send_cnt, OP_EQ, 0);
-  tt_int_op(delay_data->cell_ewfd_delay.heap_index, OP_EQ, -1);
+  tt_int_op(delay_data->cell_ewfd_delay.active_hindex, OP_EQ, -1);
 
 done:
   ewfd_delay_policy.free_circ_data(&cmux, &pol_data, &circ, circ_data);
@@ -351,7 +351,7 @@ static void test_ewfd_event_queue_delete(void *args) {
   tt_int_op(ewfd_get_event_num((uintptr_t) &circ2), OP_EQ, 1);
   tt_int_op(ewfd_get_event_num((uintptr_t) &circ3), OP_EQ, 1);
 
-  ewfd_remove_remain_events((uintptr_t) &circ1);
+  ewfd_remove_circ_events((uintptr_t) &circ1);
 
   tt_int_op(ewfd_get_event_num((uintptr_t) &circ1), OP_EQ, 0);
   tt_int_op(ewfd_get_event_num((uintptr_t) &circ2), OP_EQ, 1);

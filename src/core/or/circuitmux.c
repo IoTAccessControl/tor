@@ -71,7 +71,7 @@
 
 #define CIRCUITMUX_PRIVATE
 
-#define EWFD_USE_TEMP_LOG
+// #define EWFD_USE_TEMP_LOG
 #include "feature/ewfd/debug.h"
 
 #include "core/or/or.h"

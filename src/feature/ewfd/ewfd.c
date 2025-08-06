@@ -77,10 +77,26 @@ typedef struct ewfd_event_queue_t {
 // put in queue
 /* 如果sleep太久，后面就唤醒
 */
-struct ewfd_delay_cell_t;
+struct ewfd_delay_entry_t;
+typedef struct ewfd_delay_queue_t {
+	TOR_SIMPLEQ_HEAD(delay_circ_simpleq_t, ewfd_delay_entry_t) head;
+	uint32_t queue_len;
+} ewfd_delay_queue_st;
+
+
+/*
+* 定期检查每个cmux的inactive队列，唤醒对应的circ
+* 退出：on_circ被终结，或者api上关闭了操作 
+*/
+enum EWFD_DELAY_STATE {
+	EWFD_DELAY_STATE_ACTIVE = 1,
+	EWFD_DELAY_STATE_INACTIVE = 2,
+};
+
 typedef struct ewfd_delay_entry_t {
 	TOR_SIMPLEQ_ENTRY(ewfd_delay_entry_t) next;
-	struct ewfd_delay_cell_t *entry;
+	uintptr_t on_circ;
+	uint32_t event_num;
 } ewfd_delay_entry_st;
 
 static void parser_client_conf(void);
@@ -103,6 +119,16 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data);
 static int ewfd_add_to_event_queue(ewfd_op_event_st *event);
 static bool handle_one_event(ewfd_op_event_st *event);
 static const char* event_op_to_str(ewfd_op_event_st *event);
+
+static void ewfd_remove_remain_events(uintptr_t on_circ);
+
+// 定时触发这些 circuts中的inactive队列  
+/*
+* TODO: 改成time wheel触发
+*/
+static void ewfd_add_delay_trigger_event(uintptr_t on_circ, uint32_t gap_ms);
+static void ewfd_remove_delay_trigger_event(uintptr_t on_circ);
+static void ewfd_try_trigger_delay_events(uint64_t cur_ti);
 
 /* delay队列在cmux中唤醒
 * 如果完全没有任何active queue，全是sleep的，就主动唤醒delay的队列
@@ -225,6 +251,11 @@ static void init_ewfd_queues(ewfd_framework_st *framework) {
 		framework->ewfd_event_queue = (ewfd_event_queue_st *) tor_malloc_zero(sizeof(ewfd_event_queue_st));
 		TOR_SIMPLEQ_INIT(&framework->ewfd_event_queue->head);
 	}
+
+	if (framework->ewfd_delay_queue == NULL) {
+		framework->ewfd_delay_queue = (ewfd_delay_queue_st *) tor_malloc_zero(sizeof(ewfd_delay_queue_st));
+		TOR_SIMPLEQ_INIT(&framework->ewfd_delay_queue->head);
+	}
 }
 
 static void free_ewfd_queues(ewfd_framework_st *framework){
@@ -237,6 +268,16 @@ static void free_ewfd_queues(ewfd_framework_st *framework){
 		}
 		tor_free(framework->ewfd_event_queue);
 	}
+
+	ewfd_delay_entry_st *delay_entry;
+	if (framework->ewfd_delay_queue != NULL) {
+		while ((delay_entry = TOR_SIMPLEQ_FIRST(&framework->ewfd_delay_queue->head)) != NULL) {
+			TOR_SIMPLEQ_REMOVE_HEAD(&framework->ewfd_delay_queue->head, next);
+			tor_free(delay_entry);
+			framework->ewfd_delay_queue->queue_len--;
+		}
+		tor_free(framework->ewfd_delay_queue);
+	}
 }
 
 
@@ -244,7 +285,12 @@ static void free_ewfd_queues(ewfd_framework_st *framework){
 // ewfd ebpf api 
 // --------------------------------------------------------------
 
-void ewfd_remove_remain_events(uintptr_t on_circ) {
+void ewfd_remove_circ_events(uintptr_t on_circ) {
+	ewfd_remove_remain_events(on_circ);
+	ewfd_remove_delay_trigger_event(on_circ);
+}
+
+static void ewfd_remove_remain_events(uintptr_t on_circ) {
 	if (ewfd_framework_instance == NULL) { 	// tor is free
 		return;
 	}
@@ -336,6 +382,9 @@ int ewfd_op_delay(uintptr_t on_circ, uint32_t insert_ti, uint32_t delay_ms, uint
 	ewfd_op_event_st *delay_event = alloc_ewfd_event(on_circ, insert_ti, EWFD_OP_DELAY_GAP);
 	delay_event->delay_event.delay_ms = delay_ms;
 	delay_event->delay_event.pkt_num = pkt_num;
+
+	ewfd_add_delay_trigger_event(on_circ, delay_ms);
+
 	return ewfd_add_to_event_queue(delay_event);
 }
 
@@ -356,7 +405,9 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data) {
 		cur_ti = *(uint64_t *) data;
 	}
 #endif
-	
+
+	EWFD_LOG("[delay-event] step:on_tick cur_ti:%lu", cur_ti);
+
 	/* 每次处理，(上次处理到的时间戳， cur_ti] 之间的包
 	*/
 	ewfd_event_queue_st *queue = (ewfd_event_queue_st *) ewfd_framework_instance->ewfd_event_queue;
@@ -398,14 +449,14 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data) {
 			if (cur_event->insert_ti > range_end) {
 				break;
 			}
-			EWFD_TEMP_LOG("[delay-event] step:process_one_event circ:%d ev-id:%d range:'%lu->%lu' insert-ti:%lu remain:%d all:%d tick:%d", 
+			// 没处理完的保存在队列
+			bool is_processed = handle_one_event(cur_event);
+			
+			EWFD_LOG("[delay-event] step:process_one_event circ:%d ev-id:%d range:'%lu->%lu' insert-ti:%lu remain:%d all:%d tick:%d is_processed:%d", 
 				ewfd_get_circuit_id((circuit_t *) cur_event->on_circ), cur_event->event_id,
 				range_start, range_end,
 				cur_event->insert_ti, ewfd_get_event_num(cur_event->on_circ), 
-				ewfd_framework_instance->ewfd_event_queue->queue_len, tick++);
-			
-			// 没处理完的保存在队列
-			bool is_processed = handle_one_event(cur_event);
+				ewfd_framework_instance->ewfd_event_queue->queue_len, tick++, is_processed);
 			
 			// printf("is_processed: %d tick: %lu want: %lu on_circ: %p event_id: %d\n", is_processed, cur_ti, cur_event->insert_ti, cur_event->on_circ, cur_event->event_id);
 
@@ -449,6 +500,11 @@ void on_event_queue_tick(periodic_timer_t *timer, void *data) {
 				expire_event, cur_ti, range_start, range_end);
 		}
 	}
+
+	/*
+	* poll delay event queue
+	*/
+	ewfd_try_trigger_delay_events(cur_ti);
 }
 
 static int ewfd_add_to_event_queue(ewfd_op_event_st *event) {
@@ -502,8 +558,8 @@ static int ewfd_add_to_event_queue(ewfd_op_event_st *event) {
 }
 
 static bool handle_one_event(ewfd_op_event_st *cur_event) {
-// 	EWFD_TEMP_LOG("[delay-event] step:handle_one_event ti:%lu op:%s cur_ti:%lu id:%d", cur_event->insert_ti, 
-// 			event_op_to_str(cur_event), monotime_absolute_msec(), cur_event->event_id);
+	// EWFD_LOG("[delay-event] step:handle_one_event ti:%lu op:%s cur_ti:%lu id:%d", cur_event->insert_ti, 
+	// 		event_op_to_str(cur_event), monotime_absolute_msec(), cur_event->event_id);
 
 	circuit_t * cur_circ = (circuit_t *) cur_event->on_circ;
 	if (!is_valid_circuit(cur_event->on_circ)) {
@@ -537,11 +593,8 @@ static bool handle_one_event(ewfd_op_event_st *cur_event) {
 		}
 	#endif
 
-		// 未发送完，需要等待
-		bool should_wait = ewfd_paddding_op_delay_gap_impl(cur_circ, cur_event->delay_event.delay_ms, cur_event->delay_event.pkt_num);
-		if (should_wait) {
-			return false;
-		}
+		// is handled or not
+		return ewfd_paddding_op_delay_gap_impl(cur_circ, cur_event->delay_event.delay_ms, cur_event->delay_event.pkt_num);
 	} else {
 		EWFD_LOG("ERROR: unknow ewfd op: %d", cur_event->ewfd_op);
 		tor_assert(false);
@@ -569,4 +622,76 @@ static const char* event_op_to_str(ewfd_op_event_st *event) {
 			return "EWFD_OP_UNKNOWN";
 	}
 	return "";
+}
+
+static void ewfd_try_trigger_delay_events(uint64_t cur_ti) 
+{
+	ewfd_delay_queue_st *queue = (ewfd_delay_queue_st *) ewfd_framework_instance->ewfd_delay_queue;
+	ewfd_delay_entry_st *delay_entry = TOR_SIMPLEQ_FIRST(&queue->head);
+	ewfd_delay_entry_st *prev_entry = NULL;
+	
+	/*
+	* normal状态release 
+	*/
+	while (delay_entry != NULL) {
+		ewfd_delay_entry_st *next_entry = TOR_SIMPLEQ_NEXT(delay_entry, next);
+		bool should_release = ewfd_padding_trigger_inactive_circ((circuit_t *) delay_entry->on_circ, cur_ti);
+		
+		if (should_release) {
+			if (prev_entry == NULL) {
+				TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+			} else {
+				TOR_SIMPLEQ_REMOVE_AFTER(&queue->head, prev_entry, next);
+			}
+			queue->queue_len--;
+			tor_free(delay_entry);
+		} else {
+			prev_entry = delay_entry;
+		}
+		delay_entry = next_entry;
+	}
+}
+
+static void ewfd_add_delay_trigger_event(uintptr_t on_circ, uint32_t gap_ms)
+{
+	ewfd_delay_queue_st *queue = (ewfd_delay_queue_st *) ewfd_framework_instance->ewfd_delay_queue;
+	bool not_exist = true;
+	ewfd_delay_entry_st *delay_entry = TOR_SIMPLEQ_FIRST(&queue->head);
+	while (delay_entry != NULL) {
+		if (delay_entry->on_circ == on_circ) {
+			not_exist = false;
+			break;
+		}
+		delay_entry = TOR_SIMPLEQ_NEXT(delay_entry, next);
+	}
+
+	if (not_exist) {
+		delay_entry = (ewfd_delay_entry_st *) tor_malloc_zero(sizeof(ewfd_delay_entry_st));
+		delay_entry->on_circ = on_circ;
+		TOR_SIMPLEQ_INSERT_HEAD(&queue->head, delay_entry, next);
+		queue->queue_len++;
+	}
+	delay_entry->event_num++;
+}
+
+static void ewfd_remove_delay_trigger_event(uintptr_t on_circ)
+{
+	EWFD_TEMP_LOG("[delay-event] step:remove_delay_trigger_event circ:%d", ewfd_get_circuit_id((circuit_t *) on_circ));
+	ewfd_delay_queue_st *queue = (ewfd_delay_queue_st *) ewfd_framework_instance->ewfd_delay_queue;
+	ewfd_delay_entry_st *delay_entry = TOR_SIMPLEQ_FIRST(&queue->head);
+	ewfd_delay_entry_st *prev_entry = NULL;
+	while (delay_entry != NULL) {
+		if (delay_entry->on_circ == on_circ) {
+			if (prev_entry == NULL) {
+				TOR_SIMPLEQ_REMOVE_HEAD(&queue->head, next);
+			} else {
+				TOR_SIMPLEQ_REMOVE_AFTER(&queue->head, prev_entry, next);
+			}
+			queue->queue_len--;
+			tor_free(delay_entry);
+			break;
+		}
+		prev_entry = delay_entry;
+		delay_entry = TOR_SIMPLEQ_NEXT(delay_entry, next);
+	}
 }

@@ -182,7 +182,7 @@ static void dev_gan_init(void) {
 	EWFD_LOG("dev_gan_init");
 }
 
-static int add_delay_pkt = 100;
+static int add_delay_pkt = 1000;
 
 /*
  * gan实现是，队列中没有delay事件就自己去get
@@ -207,9 +207,9 @@ static uint64_t dev_gan_on_tick(ewfd_circ_status_st *ewfd_status) {
 		int op_ret = ewfd_op_delay(ewfd_status->on_circ, now_ti, send_ti, 3);
 	#endif
 		EWFD_TEMP_LOG("[delay-event] step:gan_add_delay circ:%d last_ti:%lu cur_ti:%lu"
-			" trigger-ti:%lu bf-ev:%d af-ev:%d suc:%d", 
+			" trigger-ti:%lu bf-ev:%d af-ev:%d suc:%d remain:%d", 
 			ewfd_get_circuit_id((circuit_t *) ewfd_status->on_circ), last_ti,
-			now_ti, send_ti, remain_events, ewfd_get_event_num(ewfd_status->on_circ), op_ret);
+			now_ti, send_ti, remain_events, ewfd_get_event_num(ewfd_status->on_circ), op_ret, remain_events);
 
 		// 直接发送drop包，测试功能
 		// ewfd_add_dummy_packet(ewfd_status->on_circ, send_ti);

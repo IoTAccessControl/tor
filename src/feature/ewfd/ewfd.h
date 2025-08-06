@@ -15,10 +15,12 @@ Padding 框架，全局timer，padding ebpf conf 生命周期管理
 // struct ewfd_conf_cache
 
 struct ewfd_event_queue_t;
+struct ewfd_delay_queue_t;
 
 // 固定tick调用，dummy queue和padding unit
 typedef struct ewfd_framework_t {
 	struct ewfd_event_queue_t *ewfd_event_queue;
+	struct ewfd_delay_queue_t *ewfd_delay_queue;
 
 	// smartlist_t *
 	periodic_timer_t *padding_ticker; // 当前不使用
@@ -40,7 +42,8 @@ void ewfd_framework_init(void);
 void ewfd_framework_free(void);
 
 void start_ewfd_padding_framework(void);
-void ewfd_remove_remain_events(uintptr_t on_circ);
+void ewfd_remove_circ_events(uintptr_t on_circ);
+
 
 #ifdef EWFD_UNITEST_TEST_PRIVATE
 // struct ewfd_event_queue_t;

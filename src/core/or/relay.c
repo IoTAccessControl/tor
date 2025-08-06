@@ -3142,7 +3142,7 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      * Now update the cmux; tell it we've just sent a cell, and how many
      * we have left.
      */
-    EWFD_TEMP_LOG("[delay-event] step:first_active_circuit circ:%d queue-n-cells:%d", ewfd_get_circuit_id(circ), queue->n);
+    // EWFD_TEMP_LOG("[delay-event] step:first_active_circuit circ:%d queue-n-cells:%d", ewfd_get_circuit_id(circ), queue->n);
     circuitmux_notify_xmit_cells(cmux, circ, 1);
     circuitmux_set_num_cells(cmux, circ, queue->n);
     if (queue->n == 0)

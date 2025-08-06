@@ -12,6 +12,7 @@ circuitmux_policy_t* ewfd_get_mux_policy(void);
 
 // need wait ?
 bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t pkt_num);
+bool circuitmux_trigger_inactive_circ(circuit_t *circ, uint64_t tick_ms);
 
 enum EWFDDelayMODE {
   EWFD_MODE_NORMAL = 0, // 直接send，不管模式
@@ -71,8 +72,7 @@ typedef struct cell_ewfd_delay_t {
   uint32_t send_dummy_pkt; // 发送了多少dummy包
   uint8_t delay_state; // burst or gap
 
-  int heap_index;
-  int sleep_hindex;
+  int active_hindex;
   int inactive_hindex;
 } cell_ewfd_delay_t;
 
@@ -96,7 +96,7 @@ typedef struct ewfd_policy_data_t {
   /**
    * For delay based WP defense, we need to make the circuit sleep for a while to make a GAP after a burst stream.
    */
-  smartlist_t *sleep_circuit_pqueue;
+  // smartlist_t *sleep_circuit_pqueue;
 
   int idx;
 

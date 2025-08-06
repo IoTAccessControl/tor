@@ -30,4 +30,6 @@ bool ewfd_paddding_op_dummy_impl(circuit_t *circ);
 
 bool ewfd_paddding_op_delay_gap_impl(circuit_t *circ, uint32_t trigger_ms, uint32_t pkt_num);
 
+bool ewfd_padding_trigger_inactive_circ(circuit_t *circ, uint64_t tick_ms);
+
 #endif // EWFD_OP_H_

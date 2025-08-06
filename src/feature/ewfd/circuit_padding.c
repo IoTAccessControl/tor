@@ -239,8 +239,9 @@ void free_ewfd_runtime_on_circ(circuit_t *circ) {
 
 // remove packet on queue
 void on_ewfd_runtime_destory(circuit_t *circ) {
-	// EWFD_LOG("----------------------------------on_ewfd_runtime_destory: %u", ewfd_get_circuit_id(circ));
-	ewfd_remove_remain_events((uintptr_t) circ);
+	EWFD_LOG("----------------------------------on_ewfd_runtime_destory: %u", ewfd_get_circuit_id(circ));
+	ewfd_remove_circ_events((uintptr_t) circ);
+
 	circ->ewfd_padding_rt->on_circ = NULL;
 }
 
