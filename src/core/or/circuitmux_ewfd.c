@@ -698,8 +698,9 @@ bool circuitmux_set_advance_delay(circuit_t *circ, uint64_t gap_ti_ms, uint32_t 
 }
 
 /*
-* 基本逻辑：检查gap是否结束，以及是否需要唤醒
-* 
+* 基本逻辑：
+* 1. 检查gap是否结束，以及是否需要唤醒  
+* 2. 对于没有包的burst队列，发送一个dummy包  
 * @return true: should release
 */
 bool circuitmux_trigger_inactive_circ(circuit_t *circ, uint64_t tick_ms)
@@ -847,7 +848,7 @@ static void ewfd_log_all_queue_circuits(ewfd_policy_data_t *pol, const char *con
 }
 
 /*
-* queue从gap状态恢复，需要加到
+* queue从gap状态恢复，如果没有包，就需要发送dummy包
 */
 static void ewfd_cmux_revoke_inactive_queue(cell_ewfd_delay_t *delay_item, circuit_t *circ, ewfd_policy_data_t *pol, channel_t *chan) 
 {
